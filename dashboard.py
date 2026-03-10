@@ -1,6 +1,9 @@
 """Entry point for the web dashboard."""
 
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.web.app import create_app
 

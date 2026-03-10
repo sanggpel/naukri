@@ -25,7 +25,7 @@ A personal job application assistant that automates job discovery, generates ATS
 | Web Dashboard | FastAPI + Jinja2 (server-side rendered) |
 | PDF Rendering | WeasyPrint (optional) + python-docx |
 | Data Models | Pydantic v2 |
-| Storage | JSON files |
+| Storage | SQLite |
 
 ## Prerequisites
 
@@ -219,7 +219,7 @@ merinaukri/
 │   ├── models.py              # Pydantic data models
 │   ├── llm_client.py          # Unified Groq/Anthropic LLM client
 │   ├── profile_loader.py      # Loads profile.yaml
-│   ├── tracker.py             # Application CRUD (JSON storage)
+│   ├── tracker.py             # Application CRUD (SQLite)
 │   ├── bot/
 │   │   ├── app.py             # Bot setup, command registration, scheduler
 │   │   └── handlers.py        # All Telegram command handlers
@@ -244,7 +244,7 @@ merinaukri/
 ├── static/
 │   └── style.css              # Dashboard styles
 └── data/                      # Generated at runtime (not committed)
-    ├── applications.json      # All tracked applications
+    ├── tracker.db             # SQLite database (applications)
     ├── jobs/                  # Cached job listings
     ├── resumes/               # Generated resumes
     └── cover_letters/         # Generated cover letters
@@ -254,7 +254,7 @@ merinaukri/
 
 - **LLM Provider** — Groq is the default (free and fast). To use Anthropic instead, set `provider: anthropic` in `config/settings.yaml` and add `ANTHROPIC_API_KEY` to your `.env` file.
 - **WeasyPrint** — Required for PDF output. If you only need DOCX, you can skip installing it. On macOS you may need `brew install pango` first.
-- **Data storage** — All data is stored as JSON files in the `data/` directory. No database required.
+- **Data storage** — Applications are stored in a SQLite database (`data/tracker.db`). If upgrading from a previous JSON-based version, existing `applications.json` data is auto-migrated on first run.
 - **LinkedIn cookies** — Cookies expire periodically. Re-export them when referral searches stop working.
 - **Scheduled scouting** — The bot must be running for scheduled scouts to work. Send `/start` to your bot first so it knows your chat ID.
 
