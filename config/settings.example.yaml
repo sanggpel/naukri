@@ -1,0 +1,43 @@
+llm:
+  provider: groq                          # "groq" (free) or "anthropic"
+  groq_model: llama-3.3-70b-versatile
+  anthropic_model: claude-sonnet-4-20250514
+  max_tokens: 4096
+
+telegram:
+  merinaukri: YOUR_TELEGRAM_BOT_TOKEN     # Get from @BotFather on Telegram
+
+linkedin:
+  cookies_file: cookies.json              # Path to exported LinkedIn cookies JSON
+  rate_limit_seconds: 3
+  cache_ttl_hours: 24
+
+discovery:
+  default_sources:
+    - linkedin
+    - indeed
+  default_location: "Your City, State, Country"
+  default_country: "Your Country"
+  max_results: 30
+
+scout:
+  queries:
+    - "Software Engineer"
+    - "Backend Developer"
+    - "Engineering Manager"
+    # Add your target job titles here
+  location: "Your Country"
+  country: "Your Country"
+  sources:
+    - indeed
+    - linkedin
+    - glassdoor
+  max_per_query: 15
+  remote_only: false
+  interval_hours: 6
+  chat_id:                                # Auto-populated when you send /start to your bot
+
+output:
+  format: pdf
+  resume_template: templates/resume_template.html
+  cover_letter_template: templates/cover_letter_template.html

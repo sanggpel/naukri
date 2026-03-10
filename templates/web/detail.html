@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ app.job_title }} at {{ app.company }} — Job Tracker{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">&larr; Back to Dashboard</a>
+
+<div class="detail-header">
+    <h2>{{ app.job_title }}</h2>
+    <div class="company">{{ app.company }}</div>
+    <div class="meta">
+        {% if app.location %}{{ app.location }} &bull; {% endif %}
+        {% if app.source %}{{ app.source }} &bull; {% endif %}
+        {% if app.date_generated %}Generated {{ app.date_generated[:10] }}{% endif %}
+        {% if app.url %} &bull; <a href="{{ app.url }}" target="_blank" class="job-link">View Job Posting</a>{% endif %}
+    </div>
+    <div style="margin-top:12px;">
+        <span class="badge badge-{{ app.status }}" style="font-size:0.85rem;">{{ app.status.replace('_', ' ') }}</span>
+        {% if app.ats_score %}
+        <span class="ats-score {% if app.ats_score >= 80 %}ats-high{% elif app.ats_score >= 60 %}ats-mid{% else %}ats-low{% endif %}" style="margin-left:8px;">
+            {{ app.ats_score }}
+        </span>
+        <span style="color:#888;font-size:0.8rem;margin-left:4px;">ATS Score</span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="detail-grid">
+    <!-- Status Update -->
+    <div class="card">
+        <h3>Update Status</h3>
+        <form action="/application/{{ app.id }}/status" method="post">
+            <select name="status">
+                {% for s in statuses %}
+                <option value="{{ s }}" {% if app.status == s %}selected{% endif %}>{{ s.replace('_', ' ')|capitalize }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-row">
+                <button type="submit" class="btn btn-primary">Update Status</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Documents -->
+    <div class="card">
+        <h3>Documents</h3>
+        {% if app.resume_path %}
+        <div style="margin-bottom:10px;">
+            <a href="/download/{{ app.resume_path }}" class="btn btn-outline">Download Resume</a>
+        </div>
+        {% endif %}
+        {% if app.cover_letter_path %}
+        <div style="margin-bottom:10px;">
+            <a href="/download/{{ app.cover_letter_path }}" class="btn btn-outline">Download Cover Letter</a>
+        </div>
+        {% endif %}
+        {% if not app.resume_path and not app.cover_letter_path %}
+        <p style="color:#888;">No documents generated yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- Referrals -->
+    <div class="card">
+        <h3>LinkedIn Referrals at {{ app.company }}</h3>
+        {% if app.referrals %}
+            {% set first_degree = [] %}
+            {% set second_degree = [] %}
+            {% for r in app.referrals %}
+                {% if r.connection_degree == 1 %}
+                    {% set _ = first_degree.append(r) %}
+                {% else %}
+                    {% set _ = second_degree.append(r) %}
+                {% endif %}
+            {% endfor %}
+
+            {% if first_degree %}
+            <div style="margin-bottom:8px;font-weight:600;color:#2e7d32;">1st Degree — can refer you directly</div>
+            {% for r in first_degree %}
+            <div class="referral-item">
+                <span class="referral-name">{{ r.person_name }}</span>
+                <span class="referral-degree">1st</span>
+                {% if r.current_title %}<div class="referral-title">{{ r.current_title }}</div>{% endif %}
+                {% if r.linkedin_url %}<a href="{{ r.linkedin_url }}" target="_blank" class="referral-link">LinkedIn Profile</a>{% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if second_degree %}
+            <div style="margin-bottom:8px;margin-top:12px;font-weight:600;color:#1565c0;">2nd Degree — ask for an intro</div>
+            {% for r in second_degree %}
+            <div class="referral-item">
+                <span class="referral-name">{{ r.person_name }}</span>
+                <span class="referral-degree">2nd</span>
+                {% if r.current_title %}<div class="referral-title">{{ r.current_title }}</div>{% endif %}
+                {% if r.linkedin_url %}<a href="{{ r.linkedin_url }}" target="_blank" class="referral-link">LinkedIn Profile</a>{% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        {% else %}
+            <p style="color:#888;">No referrals found yet.</p>
+        {% endif %}
+        <form action="/application/{{ app.id }}/referrals" method="post" style="margin-top:12px;">
+            <button type="submit" class="btn btn-success">
+                {% if app.referrals %}Refresh Referrals{% else %}Find Referrals{% endif %}
+            </button>
+        </form>
+    </div>
+
+    <!-- Job Description -->
+    {% if app.description %}
+    <div class="card full-width">
+        <h3>Job Description</h3>
+        <div class="job-description">{{ app.description }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Notes -->
+    <div class="card">
+        <h3>Notes</h3>
+        <form action="/application/{{ app.id }}/notes" method="post">
+            <textarea name="notes" placeholder="Add your notes here...">{{ app.notes }}</textarea>
+            <div class="form-row">
+                <button type="submit" class="btn btn-primary">Save Notes</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Danger zone -->
+    <div class="card full-width" style="border:1px solid #fce4ec;">
+        <h3 style="color:#c62828;">Danger Zone</h3>
+        <form action="/application/{{ app.id }}/delete" method="post"
+              onsubmit="return confirm('Remove this application from tracking?')">
+            <button type="submit" class="btn btn-danger">Remove Application</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page {
+    size: letter;
+    margin: 0.5in 0.7in;
+  }
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.4;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+  }
+  h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    margin: 0 0 2px 0;
+    border-bottom: 3px solid #2c5282;
+    padding-bottom: 4px;
+    color: #1a1a1a;
+  }
+  .contact {
+    font-size: 9pt;
+    color: #444;
+    margin-bottom: 12px;
+  }
+  h2 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #2c5282;
+    text-transform: uppercase;
+    border-bottom: 1px solid #cbd5e0;
+    padding-bottom: 2px;
+    margin: 14px 0 6px 0;
+  }
+  .summary {
+    font-size: 10pt;
+    margin-bottom: 8px;
+  }
+  .competency-category {
+    font-weight: 700;
+    font-size: 9.5pt;
+  }
+  .competency-skills {
+    font-size: 9.5pt;
+  }
+  .competency-line {
+    margin-bottom: 2px;
+  }
+  .job-header {
+    margin-top: 8px;
+    margin-bottom: 2px;
+  }
+  .job-title {
+    font-weight: 700;
+    font-size: 10.5pt;
+  }
+  .job-meta {
+    font-size: 9pt;
+    color: #555;
+  }
+  ul {
+    margin: 3px 0 8px 0;
+    padding-left: 18px;
+  }
+  li {
+    font-size: 9.5pt;
+    margin-bottom: 2px;
+  }
+  .education-item, .cert-item, .highlight-item {
+    font-size: 9.5pt;
+    margin-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+
+<h1>{{ name | upper }}</h1>
+<div class="contact">
+  {{ contact.location }} | {{ contact.phone }} | {{ contact.email }} | {{ contact.linkedin }}
+  {% if contact.citizenship %} | {{ contact.citizenship }}{% endif %}
+</div>
+
+<h2>Executive Summary</h2>
+<div class="summary">{{ resume.executive_summary }}</div>
+
+<h2>Core Competencies</h2>
+{% for category, skills in resume.core_competencies.items() %}
+<div class="competency-line">
+  <span class="competency-category">{{ category }}:</span>
+  <span class="competency-skills">{{ skills | join(', ') }}</span>
+</div>
+{% endfor %}
+
+<h2>Professional Experience</h2>
+{% for exp in resume.experience %}
+<div class="job-header">
+  <span class="job-title">{{ exp.title }} &mdash; {{ exp.company }}</span>
+  <span class="job-meta"> | {{ exp.period }}{% if exp.location %} | {{ exp.location }}{% endif %}</span>
+</div>
+<ul>
+  {% for bullet in exp.bullets %}
+  <li>{{ bullet }}</li>
+  {% endfor %}
+</ul>
+{% endfor %}
+
+<h2>Education &amp; Certifications</h2>
+{% for edu in resume.education %}
+<div class="education-item">{{ edu }}</div>
+{% endfor %}
+{% for cert in resume.certifications %}
+<div class="cert-item">&bull; {{ cert }}</div>
+{% endfor %}
+
+{% if resume.project_highlights %}
+<h2>Project Highlights</h2>
+{% for h in resume.project_highlights %}
+<div class="highlight-item">&bull; {{ h }}</div>
+{% endfor %}
+{% endif %}
+
+</body>
+</html>

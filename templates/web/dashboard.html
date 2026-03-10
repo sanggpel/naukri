@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Job Tracker{% endblock %}
+
+{% block content %}
+<div class="stats-bar">
+    <div class="stat-card">
+        <div class="number">{{ stats.get('all', 0) }}</div>
+        <div class="label">Total</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.get('discovered', 0) }}</div>
+        <div class="label">Discovered</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.get('applied', 0) }}</div>
+        <div class="label">Applied</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.get('interviewing', 0) }}</div>
+        <div class="label">Interviewing</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.get('offered', 0) }}</div>
+        <div class="label">Offered</div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+    <form method="get" action="/" class="filter-form">
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="Search title, company, description..." class="filter-search">
+        <select name="company" class="filter-select">
+            <option value="">All Companies</option>
+            {% for c in companies %}
+            <option value="{{ c }}" {% if filters.company == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+        <select name="source" class="filter-select">
+            <option value="">All Sources</option>
+            {% for s in sources %}
+            <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        <select name="remote" class="filter-select">
+            <option value="">All Locations</option>
+            <option value="yes" {% if filters.remote == 'yes' %}selected{% endif %}>Remote / Hybrid</option>
+        </select>
+        <input type="hidden" name="status" value="{{ current_status }}">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        {% if filters.q or filters.company or filters.source or filters.remote %}
+        <a href="/?status={{ current_status }}" class="btn btn-outline" style="font-size:0.8rem;">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Status tabs -->
+<div class="filter-tabs">
+    {% for s in statuses %}
+    <a href="/?status={{ s }}{% if filters.q %}&q={{ filters.q }}{% endif %}{% if filters.company %}&company={{ filters.company }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.remote %}&remote={{ filters.remote }}{% endif %}" class="{% if current_status == s %}active{% endif %}">
+        {{ s.replace('_', ' ')|capitalize }} ({{ stats.get(s, 0) }})
+    </a>
+    {% endfor %}
+</div>
+
+<div style="color:#888;font-size:0.8rem;margin-bottom:12px;">Showing {{ applications|length }} result(s)</div>
+
+{% if applications %}
+<form method="post" action="/bulk-status" id="bulkForm">
+<!-- Bulk action bar -->
+<div class="bulk-bar" id="bulkBar">
+    <span id="selectedCount">0</span> selected &mdash;
+    <select name="bulk_status" class="filter-select" style="min-width:auto;width:160px;display:inline-block;">
+        <option value="not_relevant">Not Relevant</option>
+        <option value="discovered">Discovered</option>
+        <option value="generated">Generated</option>
+        <option value="applied">Applied</option>
+        <option value="rejected">Rejected</option>
+        <option value="withdrawn">Withdrawn</option>
+    </select>
+    <button type="submit" class="btn btn-primary" style="font-size:0.8rem;">Apply to Selected</button>
+</div>
+
+<table class="app-table">
+    <thead>
+        <tr>
+            <th style="width:36px;"><input type="checkbox" id="selectAll" title="Select all"></th>
+            <th>Company / Role</th>
+            <th>Status</th>
+            <th>ATS</th>
+            <th>Source</th>
+            <th>Date</th>
+            <th>Documents</th>
+            <th>Referrals</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for app in applications %}
+        <tr>
+            <td><input type="checkbox" name="selected" value="{{ app.id }}" class="row-check"></td>
+            <td>
+                <a href="/application/{{ app.id }}" style="text-decoration:none;">
+                    <div class="company-name">{{ app.company }}</div>
+                    <div class="job-title">{{ app.job_title }}</div>
+                </a>
+                {% if app.location %}<div style="color:#999;font-size:0.75rem;">{{ app.location }}</div>{% endif %}
+                {% if app.description %}
+                <span class="peek-link" onclick="openPeek('{{ app.job_title|e }}', '{{ app.company|e }}', this)">peek</span>
+                <div class="peek-content" style="display:none;">{{ app.description }}</div>
+                {% endif %}
+            </td>
+            <td>
+                <span class="badge badge-{{ app.status }}">{{ app.status.replace('_', ' ') }}</span>
+            </td>
+            <td>
+                {% if app.ats_score %}
+                <span class="ats-score {% if app.ats_score >= 80 %}ats-high{% elif app.ats_score >= 60 %}ats-mid{% else %}ats-low{% endif %}">
+                    {{ app.ats_score }}
+                </span>
+                {% else %}-{% endif %}
+            </td>
+            <td style="font-size:0.85rem;color:#555;">{{ app.source or '-' }}</td>
+            <td style="font-size:0.85rem;color:#555;">{{ app.date_generated[:10] if app.date_generated else '-' }}</td>
+            <td>
+                <div class="download-links">
+                    {% if app.resume_path %}
+                    <a href="/download/{{ app.resume_path }}">Resume</a>
+                    {% endif %}
+                    {% if app.cover_letter_path %}
+                    <a href="/download/{{ app.cover_letter_path }}">CL</a>
+                    {% endif %}
+                </div>
+            </td>
+            <td>
+                {% if app.referrals %}
+                <a href="/application/{{ app.id }}" style="font-size:0.85rem;color:#2e7d32;text-decoration:none;">{{ app.referrals|length }} found</a>
+                {% elif app.company %}
+                <form action="/application/{{ app.id }}/referrals" method="post" style="display:inline;">
+                    <button type="submit" class="btn btn-success" style="font-size:0.7rem;padding:3px 8px;">Find</button>
+                </form>
+                {% else %}-{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</form>
+
+<script>
+(function() {
+    const selectAll = document.getElementById('selectAll');
+    const checks = document.querySelectorAll('.row-check');
+    const bulkBar = document.getElementById('bulkBar');
+    const countEl = document.getElementById('selectedCount');
+
+    function updateCount() {
+        const n = document.querySelectorAll('.row-check:checked').length;
+        countEl.textContent = n;
+        bulkBar.style.display = n > 0 ? 'flex' : 'none';
+    }
+
+    selectAll.addEventListener('change', function() {
+        checks.forEach(c => c.checked = selectAll.checked);
+        updateCount();
+    });
+
+    checks.forEach(c => c.addEventListener('change', function() {
+        selectAll.checked = document.querySelectorAll('.row-check:checked').length === checks.length;
+        updateCount();
+    }));
+
+    updateCount();
+})();
+</script>
+
+<!-- Peek Modal -->
+<div class="modal-overlay" id="peekModal" onclick="closePeek(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div>
+                <div class="modal-title" id="peekTitle"></div>
+                <div class="modal-subtitle" id="peekCompany"></div>
+            </div>
+            <button class="modal-close" onclick="closePeek()">&times;</button>
+        </div>
+        <div class="modal-body" id="peekBody"></div>
+    </div>
+</div>
+
+<script>
+function openPeek(title, company, el) {
+    document.getElementById('peekTitle').textContent = title;
+    document.getElementById('peekCompany').textContent = company;
+    var content = el.nextElementSibling.textContent;
+    document.getElementById('peekBody').textContent = content;
+    document.getElementById('peekModal').classList.add('active');
+}
+function closePeek(e) {
+    if (!e || e.target === document.getElementById('peekModal')) {
+        document.getElementById('peekModal').classList.remove('active');
+    }
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closePeek();
+});
+</script>
+
+{% else %}
+<div class="empty-state">
+    <h3>No jobs match your filters</h3>
+    <p>Try adjusting your search or <a href="/">clear all filters</a>.</p>
+</div>
+{% endif %}
+{% endblock %}

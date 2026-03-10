@@ -1,0 +1,62 @@
+name: "Your Name"
+email: "you@example.com"
+phone: "(555) 123-4567"
+location: "Your City, State, Country"
+citizenship: "Your Citizenship"
+linkedin_url: "https://www.linkedin.com/in/yourprofile/"
+
+summary: >
+  Your professional summary here. Describe your experience,
+  expertise, and what kind of roles you're targeting.
+
+skills:
+  ai_and_ml:
+    - "Large Language Models (LLMs)"
+    - "Machine Learning"
+  cloud_platforms:
+    - "AWS"
+    - "Cloud-Native Architecture"
+  programming:
+    - "Python"
+    - "JavaScript"
+  leadership:
+    - "Technical Leadership"
+    - "Mentorship"
+
+experience:
+  - title: "Senior Software Engineer"
+    company: "Example Corp"
+    type: "Full-time"
+    start: "2022-01"
+    end: "present"
+    location: "Remote"
+    bullets:
+      - "Led development of a scalable microservices platform serving 1M+ users."
+      - "Designed and implemented REST APIs consumed by mobile and web clients."
+
+  - title: "Software Engineer"
+    company: "Previous Company"
+    type: "Full-time"
+    start: "2019-06"
+    end: "2021-12"
+    location: "City, Country"
+    bullets:
+      - "Built backend services in Python/Django."
+      - "Improved CI/CD pipeline reducing deploy time by 60%."
+
+education:
+  - institution: "University Name"
+    degree: "Bachelor of Science"
+    field: "Computer Science"
+    years: "2015-2019"
+
+certifications:
+  - "AWS Certified Solutions Architect"
+  - "Certified Scrum Master"
+
+project_highlights:
+  - "Built production AI systems combining LLMs and vector search."
+  - "Led cloud migration for enterprise SaaS platform."
+
+languages:
+  - "English"
