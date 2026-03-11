@@ -39,8 +39,8 @@ A personal job application assistant that automates job discovery, generates ATS
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/merinaukri.git
-cd merinaukri
+git clone https://github.com/sanggpel/naukri.git
+cd naukri
 ```
 
 ### 2. Create a virtual environment
@@ -249,6 +249,65 @@ merinaukri/
     ├── resumes/               # Generated resumes
     └── cover_letters/         # Generated cover letters
 ```
+
+## Building Your Profile with AI
+
+The most important file is `config/profile.yaml` — the better it describes you, the better the generated resumes and cover letters will be. You don't need to write it by hand. Use any AI assistant (ChatGPT, Claude, Gemini, etc.) to generate it from your existing resume or LinkedIn profile.
+
+### Option 1: From your LinkedIn profile
+
+1. Open your LinkedIn profile and copy all text (About, Experience, Education, Skills, Certifications)
+2. Go to [ChatGPT](https://chat.openai.com), [Claude](https://claude.ai), or [Gemini](https://gemini.google.com)
+3. Paste this prompt:
+
+```
+I'm setting up a job application assistant tool. I need you to convert my LinkedIn profile into a YAML configuration file that matches this exact structure:
+
+[paste the contents of config/profile.example.yaml here]
+
+Here is my LinkedIn profile:
+[paste your LinkedIn profile text here]
+
+Output only the YAML, no explanation.
+```
+
+4. Copy the output into `config/profile.yaml`
+
+### Option 2: From your existing resume (PDF or Word)
+
+1. Open your resume and copy all text, or upload the file directly to Claude/ChatGPT
+2. Use this prompt:
+
+```
+Convert this resume into a YAML profile file for a job application assistant.
+Use this exact structure (copy from config/profile.example.yaml):
+
+[paste config/profile.example.yaml]
+
+Resume:
+[paste or attach your resume]
+
+Output only valid YAML.
+```
+
+### Option 3: Write it yourself from scratch
+
+Ask the AI to interview you:
+
+```
+I need to create a profile.yaml file for a job application assistant.
+Please ask me questions one by one about my work experience, skills, education,
+and achievements, then generate the YAML at the end using this structure:
+
+[paste config/profile.example.yaml]
+```
+
+### Tips for a better profile
+
+- **Be specific in bullet points** — quantify achievements ("Reduced latency by 40%", "Led team of 8 engineers") rather than vague descriptions. The LLM uses these verbatim in your resume.
+- **List all skills** — even ones you consider basic. The keyword extractor matches these against job descriptions for ATS scoring.
+- **Update the summary** — write it in first person and focus on the kind of roles you're targeting now, not a generic overview.
+- **Keep `profile.yaml` private** — it's in `.gitignore` and should never be committed to a public repo.
 
 ## Notes
 
