@@ -176,11 +176,28 @@ def create_app() -> FastAPI:
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
     @app.post("/application/{app_id}/referrals")
-    async def fetch_referrals(app_id: str):
+    async def fetch_referrals(request: Request, app_id: str):
         app_data = get_application(app_id)
+        error_msg = None
         if app_data and app_data.company:
-            matches = find_connections_at_company(app_data.company)
-            update_referrals(app_id, matches)
+            try:
+                matches = find_connections_at_company(app_data.company)
+                update_referrals(app_id, matches)
+                if not matches:
+                    error_msg = f"No connections found at {app_data.company} in your LinkedIn network."
+            except Exception as e:
+                error_msg = str(e)
+
+        if error_msg:
+            # Re-render detail page with the error shown
+            app_data = get_application(app_id)
+            statuses = ["discovered", "generated", "applied", "interviewing", "offered", "rejected", "not_relevant", "withdrawn"]
+            return templates.TemplateResponse("detail.html", {
+                "request": request,
+                "app": app_data,
+                "statuses": statuses,
+                "referral_error": error_msg,
+            })
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
     @app.get("/view/{filename:path}")

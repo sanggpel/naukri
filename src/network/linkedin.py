@@ -92,8 +92,9 @@ def _search_people(session: requests.Session, company_name: str, network_depth: 
 
     network_depth: "F" = 1st degree, "S" = 2nd degree
     """
-    # LinkedIn Voyager GraphQL uses REST-li style query params in the URL
-    # Format: queryParameters:List((key:name,value:List(val)))
+    import logging
+    logger = logging.getLogger(__name__)
+
     url = (
         f"{GRAPHQL_ENDPOINT}?variables="
         f"(start:0,origin:FACETED_SEARCH,"
@@ -107,36 +108,47 @@ def _search_people(session: requests.Session, company_name: str, network_depth: 
     )
 
     resp = session.get(url, timeout=15)
+    logger.info(f"LinkedIn search [{network_depth}] status: {resp.status_code}")
+
+    if resp.status_code == 401:
+        raise RuntimeError("LinkedIn cookies have expired. Please re-export your cookies from the browser and update your cookies file.")
+    if resp.status_code == 429:
+        raise RuntimeError("LinkedIn rate limit reached. Please wait a few minutes before trying again.")
     if resp.status_code != 200:
-        return []
+        logger.warning(f"LinkedIn API returned {resp.status_code}: {resp.text[:300]}")
+        raise RuntimeError(f"LinkedIn API returned an unexpected error (HTTP {resp.status_code}). Check the server logs for details.")
 
     data = resp.json()
-    return data.get("included", [])
+    included = data.get("included", [])
+    logger.info(f"LinkedIn search [{network_depth}] returned {len(included)} items")
+    return included
 
 
 def find_connections_at_company(
     company_name: str,
     rate_limit: float = 3.0,
     cache_ttl_hours: int = 24,
+    force_refresh: bool = False,
 ) -> list[NetworkMatch]:
     """Find 1st and 2nd degree connections at a target company."""
     # Check cache first
     cache = _load_cache()
     cache_key = f"company:{company_name.lower().strip()}"
-    if cache_key in cache:
+    if not force_refresh and cache_key in cache:
         cached = cache[cache_key]
         cached_time = datetime.fromisoformat(cached["timestamp"])
-        if datetime.now() - cached_time < timedelta(hours=cache_ttl_hours):
+        # Only use cache if it has results; always re-fetch if previous result was empty
+        if cached["matches"] and datetime.now() - cached_time < timedelta(hours=cache_ttl_hours):
             return [NetworkMatch(**m) for m in cached["matches"]]
 
     try:
         cookies = _load_cookies()
     except (FileNotFoundError, ValueError) as e:
-        print(f"LinkedIn cookies error: {e}")
-        return []
+        raise RuntimeError(f"LinkedIn cookies error: {e}") from e
 
     session = _build_session(cookies)
     matches = []
+    errors = []
 
     # Search 1st then 2nd degree
     for network_depth, degree in [("F", 1), ("S", 2)]:
@@ -144,16 +156,20 @@ def find_connections_at_company(
             included = _search_people(session, company_name, network_depth)
             _extract_people(included, matches, company_name, degree)
         except Exception as e:
-            print(f"Error searching {degree} degree connections: {e}")
+            errors.append(f"{degree}° search failed: {e}")
 
         time.sleep(rate_limit)
 
-    # Cache results
-    cache[cache_key] = {
-        "timestamp": datetime.now().isoformat(),
-        "matches": [m.model_dump() for m in matches],
-    }
-    _save_cache(cache)
+    if errors and not matches:
+        raise RuntimeError("LinkedIn search failed: " + "; ".join(errors))
+
+    # Cache results (only cache if no errors or we got results)
+    if not errors or matches:
+        cache[cache_key] = {
+            "timestamp": datetime.now().isoformat(),
+            "matches": [m.model_dump() for m in matches],
+        }
+        _save_cache(cache)
 
     return matches
 
@@ -186,9 +202,17 @@ def _extract_people(included: list[dict], matches: list, company_name: str, degr
         if "?" in nav_url:
             nav_url = nav_url.split("?")[0]
 
-        # Filter: only include if company name appears in their headline
-        if company_lower not in headline.lower() and company_lower not in name.lower():
-            continue
+        # Filter: skip if we have a headline and it clearly doesn't mention the company.
+        # Be lenient — many people write short headlines like "PM at Shopify" but also
+        # just "Product Manager". Only skip if another company name is prominent.
+        if headline and company_lower not in headline.lower() and company_lower not in nav_url.lower():
+            # Still include if no competing company keyword found (headline is generic)
+            competing = any(
+                word in headline.lower()
+                for word in ["at ", " @ ", "with ", "for "]
+            )
+            if competing:
+                continue
 
         matches.append(
             NetworkMatch(

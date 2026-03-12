@@ -107,6 +107,11 @@
         {% else %}
             <p style="color:#888;">No referrals found yet.</p>
         {% endif %}
+        {% if referral_error %}
+        <div style="margin-top:10px;padding:10px 12px;background:#fff3e0;border-left:3px solid #f57c00;border-radius:4px;font-size:0.85rem;color:#e65100;">
+            <strong>Search failed:</strong> {{ referral_error }}
+        </div>
+        {% endif %}
         <form action="/application/{{ app.id }}/referrals" method="post" style="margin-top:12px;">
             <button type="submit" class="btn btn-success">
                 {% if app.referrals %}Refresh Referrals{% else %}Find Referrals{% endif %}
