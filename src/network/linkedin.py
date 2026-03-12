@@ -42,7 +42,7 @@ def _save_cache(cache: dict):
 def _load_cookies() -> dict:
     """Load LinkedIn cookies from the JSON cookie file exported from browser."""
     settings = load_settings()
-    cookies_file = settings.get("linkedin", {}).get("cookies_file", "tarin.json")
+    cookies_file = settings.get("linkedin", {}).get("cookies_file", "cookies.json")
 
     if not os.path.isabs(cookies_file):
         cookies_file = os.path.join(os.path.dirname(__file__), "..", "..", cookies_file)

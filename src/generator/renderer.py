@@ -311,8 +311,8 @@ def render_cover_letter_docx(
                 or stripped.startswith("Best ")
                 or stripped.startswith("Regards")
                 or stripped == candidate_name
-                or "sbahri@gmail.com" in stripped
-                or stripped.startswith("Calgary")
+                or "@" in stripped  # contact line with email
+                or (len(stripped) < 60 and any(c.isdigit() for c in stripped) and "(" in stripped)  # phone number line
             )
 
             if is_standalone:
@@ -349,10 +349,17 @@ def _add_cl_paragraph(doc, text, space_after=8):
 
 
 def _default_contact() -> dict:
-    return {
-        "phone": "(403) 589-3616",
-        "email": "sbahri@gmail.com",
-        "linkedin": "linkedin.com/in/sangeetabahri",
-        "location": "Calgary, AB, Canada",
-        "citizenship": "Canadian Citizen",
-    }
+    """Load contact info from profile.yaml. Falls back to empty strings."""
+    try:
+        from ..profile_loader import load_profile
+        profile = load_profile()
+        linkedin_short = profile.linkedin_url.replace("https://", "").replace("http://", "").rstrip("/")
+        return {
+            "phone": profile.phone,
+            "email": profile.email,
+            "linkedin": linkedin_short,
+            "location": profile.location,
+            "citizenship": getattr(profile, "citizenship", ""),
+        }
+    except Exception:
+        return {"phone": "", "email": "", "linkedin": "", "location": "", "citizenship": ""}

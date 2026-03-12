@@ -17,25 +17,18 @@ def generate_cover_letter(
         for bullet in exp.bullets[:3]:
             experience_summary += f"  - {bullet}\n"
 
-    prompt = f"""You are writing a cover letter for Sangeeta Bahri, a senior software leader.
-Write in first person as Sangeeta. Match the tone and style of this sample cover letter:
+    linkedin_short = profile.linkedin_url.replace("https://", "").replace("http://", "").rstrip("/")
+    contact_line = f"{profile.location} {profile.phone} {profile.email} {linkedin_short}"
 
-SAMPLE COVER LETTER STYLE:
-"I'm excited to apply for this opportunity at [Company]. What particularly attracted me to the role
-is the chance to operate at the intersection of engineering leadership, technical strategy, and
-product execution — acting as a strong partner to executive leadership while helping engineering
-teams translate ambitious ideas into scalable platforms.
-
-Over the course of my career, I've often found myself operating in roles that function as a
-technical advisor and execution partner to senior leadership. With more than 20 years in software
-development and engineering leadership, I've helped organizations navigate complex technical
-decisions, shape product direction, and ensure engineering teams are set up to deliver reliably
-at scale."
+    prompt = f"""You are writing a cover letter for {profile.name}.
+Write in first person as {profile.name}. Be professional, warm, and specific.
 
 CANDIDATE INFO:
 Name: {profile.name}
 Location: {profile.location}
 Contact: {profile.phone} | {profile.email} | {profile.linkedin_url}
+
+Summary: {profile.summary}
 
 Key Experience:
 {experience_summary}
@@ -58,8 +51,8 @@ INSTRUCTIONS:
 4. Closing paragraph: Express enthusiasm and invite discussion.
 5. End with:
    Sincerely,
-   Sangeeta Bahri
-   Calgary, AB (403) 589-3616 sbahri@gmail.com linkedin.com/in/sangeetabahri
+   {profile.name}
+   {contact_line}
 
 TONE: Professional but warm, confident not arrogant, specific not generic.
 LENGTH: 4-5 paragraphs, roughly one page.

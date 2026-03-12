@@ -11,9 +11,8 @@ __pycache__/
 config/profile.yaml
 config/settings.yaml
 
-# LinkedIn cookies
+# LinkedIn cookies and all JSON data files
 *.json
-tarin.json.ttt
 
 # Keep example files
 !.env.example
