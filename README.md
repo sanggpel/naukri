@@ -27,192 +27,122 @@ A personal job application assistant that automates job discovery, generates ATS
 | Data Models | Pydantic v2 |
 | Storage | SQLite |
 
-## Prerequisites
-
-- Python 3.13+
-- A [Groq API key](https://console.groq.com/) (free tier available)
-- A Telegram bot token (create one via [@BotFather](https://t.me/BotFather))
-- LinkedIn browser cookies exported as JSON (for referral search)
-
-## Setup
-
-### 1. Clone the repo
+## Quick Start (3 steps)
 
 ```bash
+# 1. Clone and run the setup script
 git clone https://github.com/sanggpel/naukri.git
 cd naukri
-```
+bash setup.sh
 
-### 2. Create a virtual environment
+# 2. Edit the 3 config files the script created (see below)
 
-```bash
-python3 -m venv .venv
+# 3. Run it
 source .venv/bin/activate
+python dashboard.py              # web dashboard at http://127.0.0.1:8080
+python main.py                   # telegram bot (in a separate terminal)
 ```
 
-### 3. Install dependencies
+The setup script automatically:
+- Creates a Python virtual environment
+- Installs all dependencies
+- Copies example config files for you to fill in
+- Checks for optional PDF dependencies (pango)
+- Creates data directories
 
-```bash
-pip install -r requirements.txt
-pip install "python-telegram-bot[job-queue]"  # required for scheduled scouting
-pip install python-multipart                   # required for web dashboard forms
-pip install uvicorn                             # required for web dashboard
+## What you need before starting
+
+| What | Where to get it | How long | Required? |
+|---|---|---|---|
+| Python 3.10+ | [python.org/downloads](https://www.python.org/downloads/) or `brew install python3` | 5 min | Yes |
+| Groq API key (free) | [console.groq.com](https://console.groq.com/) — sign up, create key | 2 min | Yes |
+| Telegram bot token | Message [@BotFather](https://t.me/BotFather) on Telegram → `/newbot` | 2 min | No — only if you want the Telegram bot |
+| LinkedIn cookies | For referral search — see [step 5](#5-export-linkedin-cookies-optional) below | 5 min | No — only for LinkedIn referral search |
+
+> **You don't need Telegram.** The web dashboard works on its own — you can scout for jobs, generate resumes, find referrals, and track applications entirely from your browser. The Telegram bot is an optional extra for mobile convenience.
+
+## Configuration
+
+After running `bash setup.sh`, fill in these 3 files:
+
+### 1. `.env` — your API key
+
+```
+GROQ_API_KEY=gsk_paste_your_key_here
 ```
 
-### 4. Set up environment variables
+### 2. `config/profile.yaml` — your resume
 
-Create a `.env` file in the project root:
+This is the most important file. The better it describes you, the better your generated resumes will be.
 
-```
-GROQ_API_KEY=your_groq_api_key_here
-```
+You don't need to write it by hand — see [Building Your Profile with AI](#building-your-profile-with-ai) below to have ChatGPT or Claude generate it from your LinkedIn or existing resume.
 
-### 5. Configure your profile
+The file should contain: your name, email, phone, location, summary, skills, work experience (with bullet points), and education. See `config/profile.example.yaml` for the exact format.
 
-Edit `config/profile.yaml` with your own details:
+### 3. `config/settings.yaml` — your preferences
+
+The key things to fill in:
 
 ```yaml
-name: "Your Name"
-email: "you@example.com"
-phone: "(555) 123-4567"
-location: "Your City, State, Country"
-citizenship: "Your Citizenship"
-linkedin_url: "https://www.linkedin.com/in/yourprofile/"
-
-summary: >
-  Your professional summary here...
-
-skills:
-  Category1:
-    - Skill A
-    - Skill B
-  Category2:
-    - Skill C
-
-experience:
-  - title: "Your Title"
-    company: "Company Name"
-    start: "2020"
-    end: "Present"
-    location: "City, Country"
-    bullets:
-      - "Achievement 1"
-      - "Achievement 2"
-
-education:
-  - institution: "University Name"
-    degree: "Degree"
-    field: "Field of Study"
-    years: "2015-2019"
-```
-
-### 6. Configure settings
-
-Edit `config/settings.yaml`:
-
-```yaml
-llm:
-  provider: groq                          # or "anthropic"
-  groq_model: llama-3.3-70b-versatile
-  anthropic_model: claude-sonnet-4-20250514  # only if using anthropic
-  max_tokens: 4096
-
 telegram:
-  merinaukri: YOUR_TELEGRAM_BOT_TOKEN
-
-linkedin:
-  cookies_file: cookies.json              # path to your exported LinkedIn cookies
-  rate_limit_seconds: 3
-  cache_ttl_hours: 24
+  merinaukri: YOUR_TELEGRAM_BOT_TOKEN     # from @BotFather
 
 discovery:
-  default_sources:
-    - linkedin
-    - indeed
-  default_location: "Your City, State, Country"
-  default_country: "Your Country"
-  max_results: 30
+  default_location: "Calgary, AB, Canada"  # your city
+  default_country: "Canada"                 # your country
 
 scout:
-  queries:
+  queries:                                  # job titles you're looking for
     - "Engineering Manager"
     - "Director of Engineering"
-    # add your target job titles
-  location: "Your Country"
-  country: "Your Country"
-  sources:
-    - indeed
-    - linkedin
-    - glassdoor
-  max_per_query: 15
-  remote_only: false
-  interval_hours: 6
-  chat_id: null                           # auto-populated when you send /start to your bot
-  ai_filter: true                         # use LLM to filter irrelevant results
-  target_roles: "Engineering Manager, Director of Engineering, Product Manager (software)"
-  title_keywords: []                      # optional: only include titles containing these words
-  title_exclude:                          # always exclude titles containing these words
-    - retail
-    - food
-    - electrical
-    - construction
-
-output:
-  format: pdf
-  resume_template: templates/resume_template.html
-  cover_letter_template: templates/cover_letter_template.html
+  location: "Canada"
+  country: "Canada"
 ```
 
-### 7. Set up trusted connections (optional — for warm path referrals)
+Everything else has sensible defaults. See `config/settings.example.yaml` for all options.
 
-Trusted connections are 1st-degree LinkedIn connections you can easily reach out to for help. When the referral finder runs, it will:
+### 4. Trusted connections (optional — for warm path referrals)
 
-- Mark any 1st-degree referral at the target company as **★ Trusted** if they're on your list
-- For 2nd-degree referrals, check LinkedIn shared connections and surface a **🔗 Warm path via [Name]** if one of your trusted contacts knows them
+If you want the referral finder to highlight people you already know:
 
 ```bash
-cp config/trusted_connections.example.yaml config/trusted_connections.yaml
+# The setup script already copied this for you
+# Just edit config/trusted_connections.yaml
 ```
 
-Edit `config/trusted_connections.yaml`:
+Add your 1st-degree LinkedIn connections you'd feel comfortable asking for help:
 
 ```yaml
 trusted_connections:
   - name: "Jane Smith"
     linkedin_url: "https://www.linkedin.com/in/janesmith"
-    note: "Ex-colleague at Acme, very responsive"
-
-  - name: "John Doe"
-    linkedin_url: "https://www.linkedin.com/in/johndoe"
-    note: "University friend in tech"
+    note: "Ex-colleague at Acme"
 ```
 
-This file is in `.gitignore` and never committed.
+When searching referrals, these contacts get a **★ Trusted** badge, and 2nd-degree contacts reachable through them show a **🔗 Warm path via Jane Smith** link.
 
-### 8. Export LinkedIn cookies (for referral search)
+### 5. Export LinkedIn cookies (optional)
+
+Only needed for LinkedIn referral search:
 
 1. Log into LinkedIn in your browser
-2. Use a browser extension like [Cookie-Editor](https://cookie-editor.com/) to export cookies as JSON
-3. Save the exported JSON file (e.g., `cookies.json`) in the project root
-4. Update the `cookies_file` path in `config/settings.yaml`
+2. Install the [Cookie-Editor](https://cookie-editor.com/) browser extension
+3. On any LinkedIn page, click Cookie-Editor → Export → JSON
+4. Save the file as `cookies.json` in the project root
 
 ## Running
 
-### Start the Telegram bot
+You can use the **web dashboard**, the **Telegram bot**, or both at the same time.
 
 ```bash
+source .venv/bin/activate
+
+# Web dashboard (open http://127.0.0.1:8080 in your browser)
+python dashboard.py
+
+# Telegram bot (in a separate terminal)
 python main.py
 ```
-
-### Start the web dashboard
-
-```bash
-python dashboard.py
-```
-
-The dashboard will be available at `http://127.0.0.1:8080`.
-
-You can run both simultaneously in separate terminals.
 
 ## Telegram Bot Commands
 
