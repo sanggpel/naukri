@@ -24,6 +24,126 @@ HEADERS = {
 
 GRAPHQL_ENDPOINT = "https://www.linkedin.com/voyager/api/graphql"
 QUERY_ID = "voyagerSearchDashClusters.b0928897b71bd00a5a7291755dcd64f0"
+TRUSTED_CONNECTIONS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "config", "trusted_connections.yaml")
+
+
+def load_trusted_connections() -> list[dict]:
+    """Load trusted connections from config/trusted_connections.yaml."""
+    path = os.path.abspath(TRUSTED_CONNECTIONS_PATH)
+    if not os.path.exists(path):
+        return []
+    import yaml
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data.get("trusted_connections", []) if data else []
+
+
+def _get_shared_connections(session: requests.Session, vanity_name: str) -> list[dict]:
+    """Fetch shared connections for a LinkedIn profile (by vanity name from URL).
+
+    Returns list of dicts with 'name' and 'url' for each shared connection.
+    Falls back to empty list on any error.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Step 1: resolve vanity name → internal profile ID
+    profile_resp = session.get(
+        f"https://www.linkedin.com/voyager/api/identity/profiles/{vanity_name}",
+        timeout=10,
+    )
+    if profile_resp.status_code != 200:
+        logger.debug(f"Could not fetch profile {vanity_name}: {profile_resp.status_code}")
+        return []
+
+    profile_data = profile_resp.json()
+    # Extract the memberId or entityUrn
+    entity_urn = profile_data.get("entityUrn", "")
+    member_id = entity_urn.split(":")[-1] if entity_urn else ""
+    if not member_id:
+        return []
+
+    # Step 2: fetch shared connections
+    sc_resp = session.get(
+        f"https://www.linkedin.com/voyager/api/relationships/sharedConnections"
+        f"?q=memberConnections&memberIdentity={vanity_name}&start=0&count=10",
+        timeout=10,
+    )
+    if sc_resp.status_code != 200:
+        logger.debug(f"Shared connections for {vanity_name} returned {sc_resp.status_code}")
+        return []
+
+    sc_data = sc_resp.json()
+    shared = []
+    for item in sc_data.get("included", []):
+        first = item.get("firstName", {})
+        last = item.get("lastName", {})
+        first_text = first.get("text", "") if isinstance(first, dict) else str(first)
+        last_text = last.get("text", "") if isinstance(last, dict) else str(last)
+        name = f"{first_text} {last_text}".strip()
+        vanity = item.get("publicIdentifier", "")
+        url = f"https://www.linkedin.com/in/{vanity}" if vanity else ""
+        if name:
+            shared.append({"name": name, "url": url})
+    return shared
+
+
+def _vanity_from_url(linkedin_url: str) -> str:
+    """Extract vanity name from a LinkedIn profile URL."""
+    url = linkedin_url.rstrip("/")
+    return url.split("/in/")[-1].split("?")[0] if "/in/" in url else ""
+
+
+def _enrich_with_warm_paths(
+    matches: list[NetworkMatch],
+    session: requests.Session,
+    trusted: list[dict],
+    rate_limit: float,
+) -> None:
+    """For each match, check if any trusted connection is a shared connection.
+
+    Mutates matches in-place, setting warm_path_via / warm_path_url.
+    Also marks 1st-degree matches that ARE in the trusted list directly.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not trusted:
+        return
+
+    # Normalise trusted list for fast lookup (by name and vanity)
+    trusted_by_name = {t["name"].lower(): t for t in trusted}
+    trusted_by_vanity = {_vanity_from_url(t.get("linkedin_url", "")).lower(): t for t in trusted if t.get("linkedin_url")}
+
+    for match in matches:
+        # 1st-degree: check if this person IS a trusted contact
+        if match.connection_degree == 1:
+            name_lower = match.person_name.lower()
+            vanity = _vanity_from_url(match.linkedin_url).lower()
+            if name_lower in trusted_by_name or (vanity and vanity in trusted_by_vanity):
+                match.warm_path_via = "★ Trusted contact"
+                match.warm_path_url = match.linkedin_url
+            continue
+
+        # 2nd-degree: check shared connections against trusted list
+        vanity = _vanity_from_url(match.linkedin_url)
+        if not vanity:
+            continue
+        try:
+            shared = _get_shared_connections(session, vanity)
+            time.sleep(rate_limit)
+        except Exception as e:
+            logger.debug(f"Shared connections error for {match.person_name}: {e}")
+            continue
+
+        for sc in shared:
+            sc_name = sc.get("name", "").lower()
+            sc_vanity = _vanity_from_url(sc.get("url", "")).lower()
+            trusted_entry = trusted_by_name.get(sc_name) or trusted_by_vanity.get(sc_vanity)
+            if trusted_entry:
+                match.warm_path_via = trusted_entry["name"]
+                match.warm_path_url = trusted_entry.get("linkedin_url", "")
+                break  # first match is enough
 
 
 def _load_cache() -> dict:
@@ -162,6 +282,15 @@ def find_connections_at_company(
 
     if errors and not matches:
         raise RuntimeError("LinkedIn search failed: " + "; ".join(errors))
+
+    # Enrich with warm paths via trusted connections
+    trusted = load_trusted_connections()
+    if trusted and matches:
+        try:
+            _enrich_with_warm_paths(matches, session, trusted, rate_limit)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Warm path enrichment failed: {e}")
 
     # Cache results (only cache if no errors or we got results)
     if not errors or matches:

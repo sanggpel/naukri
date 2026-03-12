@@ -13,5 +13,4 @@ python-docx>=1.1.0
 groq>=0.4.0
 # Optional: only needed if using anthropic as LLM provider
 # anthropic>=0.42.0
-# Optional: only needed for PDF output (requires system deps like pango)
-# weasyprint>=62.0
+weasyprint>=62.0  # PDF output — requires pango: brew install pango

@@ -36,6 +36,23 @@ scout:
   remote_only: false
   interval_hours: 6
   chat_id:                                # Auto-populated when you send /start to your bot
+  # AI relevance filter — uses LLM to evaluate each job against your target roles.
+  # Runs after keyword filters. Recommended: set to true for best results.
+  ai_filter: true
+  # Plain-language description of your target roles (used as context for the AI filter).
+  target_roles: "Software engineering, engineering leadership, product management, data/ML roles"
+  # Fast keyword pre-filter — runs before AI to skip obvious mismatches cheaply.
+  # Only include jobs whose title contains at least one of these (leave empty [] to disable).
+  title_keywords: []
+  # Always exclude jobs whose title contains any of these words.
+  title_exclude:
+    - "hair"
+    - "retail"
+    - "food"
+    - "beverage"
+    - "labour"
+    - "laborer"
+    - "fabricat"
 
 output:
   format: pdf

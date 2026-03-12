@@ -210,6 +210,8 @@ async def referrals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle plain URLs pasted by the user."""
+    if not update.message or not update.message.text:
+        return
     text = update.message.text.strip()
 
     # Check if the message contains a URL
@@ -219,10 +221,13 @@ async def handle_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if match:
         url = match.group(0)
         await _process_job_url(update, context, url)
+    elif text.lower() in ("scout", "run scout"):
+        await scout_command(update, context)
     else:
         await update.message.reply_text(
             "I didn't recognize that as a job URL. Try:\n"
             "- Paste a job posting URL\n"
+            "- /scout to find new matching jobs\n"
             "- /search <query> to find jobs\n"
             "- /help for all commands"
         )

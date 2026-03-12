@@ -1,0 +1,18 @@
+# Trusted connections — people you can easily reach out to for referral intros.
+# These are a curated subset of your 1st-degree LinkedIn connections.
+# Copy this file to config/trusted_connections.yaml and fill in your own list.
+#
+# When "Find Referrals" runs for a company, the tool will check if any referral
+# at that company is a shared connection with someone on this list, and surface
+# a "warm path" — e.g. "Reach out to Jane Smith → she knows the hiring manager."
+
+trusted_connections:
+  - name: "Jane Smith"
+    linkedin_url: "https://www.linkedin.com/in/janesmith"
+    note: "Ex-colleague from Acme Corp, very responsive"
+
+  - name: "John Doe"
+    linkedin_url: "https://www.linkedin.com/in/johndoe"
+    note: "University friend, works in tech recruiting"
+
+  # Add more trusted contacts here...

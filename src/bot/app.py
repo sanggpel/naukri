@@ -4,6 +4,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -84,6 +85,20 @@ def create_bot() -> Application:
     return app
 
 
+async def _set_commands(app: Application):
+    """Register bot commands so they appear in the Telegram / menu."""
+    await app.bot.set_my_commands([
+        BotCommand("start", "Welcome & save your chat ID"),
+        BotCommand("scout", "Find new matching jobs NOW"),
+        BotCommand("apply", "Generate resume & cover letter for a job URL"),
+        BotCommand("search", "Search job boards — /search <query>"),
+        BotCommand("referrals", "Find LinkedIn connections — /referrals <company>"),
+        BotCommand("profile", "Show your profile summary"),
+        BotCommand("help", "Show all commands"),
+    ])
+    logger.info("Bot commands registered in Telegram menu")
+
+
 def run_bot():
     """Start the Telegram bot."""
     logging.basicConfig(
@@ -93,5 +108,6 @@ def run_bot():
 
     logger.info("Starting Job Application Assistant bot...")
     app = create_bot()
+    app.post_init = _set_commands
     app.run_polling(drop_pending_updates=True)
     logger.info("Bot stopped.")

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ..models import NetworkMatch
+from ..models import Application, NetworkMatch
 from ..tracker import (
     delete_application,
     get_application,
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
         company: str = "",
         source: str = "",
         remote: str = "",
+        scout_added: str = "",
     ):
         all_apps = load_applications()
 
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
             "companies": companies,
             "sources": sources,
             "filters": {"q": q, "company": company, "source": source, "remote": remote},
+            "scout_added": int(scout_added) if scout_added.isdigit() else None,
         })
 
     @app.get("/application/{app_id}", response_class=HTMLResponse)
@@ -200,6 +202,56 @@ def create_app() -> FastAPI:
             })
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
+    @app.post("/scout")
+    async def run_scout(request: Request):
+        """Run the job scout and add new relevant jobs to the tracker."""
+        from datetime import datetime
+        from ..discovery.scout import scout_jobs
+
+        try:
+            jobs = scout_jobs()
+        except Exception as e:
+            # Re-render dashboard with error banner
+            all_apps = load_applications()
+            statuses = ["all", "discovered", "generated", "applied", "interviewing", "offered", "rejected", "not_relevant", "withdrawn"]
+            stats = {s: sum(1 for a in all_apps if a.status == s) for s in statuses[1:]}
+            stats["all"] = len(all_apps)
+            companies = sorted({a.company for a in all_apps if a.company})
+            sources = sorted({a.source for a in all_apps if a.source})
+            return templates.TemplateResponse("dashboard.html", {
+                "request": request,
+                "applications": all_apps,
+                "current_status": "all",
+                "statuses": statuses,
+                "stats": stats,
+                "companies": companies,
+                "sources": sources,
+                "filters": {"q": "", "company": "", "source": "", "remote": ""},
+                "scout_error": str(e),
+            })
+
+        added = 0
+        for job in jobs:
+            existing = get_application(job.id)
+            if existing:
+                continue
+            app_record = Application(
+                id=job.id,
+                job_title=job.title,
+                company=job.company,
+                location=job.location,
+                url=job.url,
+                source=job.source,
+                date_posted=job.date_posted,
+                date_generated=datetime.now().isoformat(),
+                status="discovered",
+                description=job.description,
+            )
+            save_application(app_record)
+            added += 1
+
+        return RedirectResponse(f"/?status=discovered&scout_added={added}", status_code=302)
+
     @app.get("/view/{filename:path}")
     async def view_file(filename: str):
         """Extract and return formatted HTML content from a DOCX or text file."""
@@ -306,5 +358,92 @@ def create_app() -> FastAPI:
         if not os.path.exists(path):
             return HTMLResponse("File not found", status_code=404)
         return FileResponse(path, filename=os.path.basename(path))
+
+    @app.get("/pdf/{filename:path}")
+    async def download_as_pdf(filename: str):
+        """Serve file as PDF — converts DOCX to PDF on the fly if needed."""
+        if os.path.isabs(filename) and os.path.exists(filename):
+            path = filename
+        else:
+            path = os.path.abspath(os.path.join(BASE_DIR, filename))
+
+        if not os.path.exists(path):
+            return HTMLResponse("File not found", status_code=404)
+
+        # Already a PDF — serve directly
+        if path.endswith(".pdf"):
+            stem = os.path.splitext(os.path.basename(path))[0]
+            return FileResponse(path, filename=f"{stem}.pdf", media_type="application/pdf")
+
+        # Convert DOCX → PDF via WeasyPrint (renders through HTML intermediate)
+        if path.endswith(".docx"):
+            pdf_path = path.replace(".docx", ".pdf")
+            if not os.path.exists(pdf_path):
+                pdf_path = _docx_to_pdf(path)
+            stem = os.path.splitext(os.path.basename(path))[0]
+            return FileResponse(pdf_path, filename=f"{stem}.pdf", media_type="application/pdf")
+
+        return HTMLResponse("Cannot convert this file type to PDF", status_code=415)
+
+    def _docx_to_pdf(docx_path: str) -> str:
+        """Convert a DOCX file to PDF using WeasyPrint via an HTML intermediate."""
+        import html as html_mod
+        from docx import Document
+        from weasyprint import HTML as WP_HTML
+
+        doc = Document(docx_path)
+        paragraphs_html = []
+
+        for para in doc.paragraphs:
+            raw = para.text
+            if not raw.strip():
+                paragraphs_html.append('<p style="margin:4px 0;">&nbsp;</p>')
+                continue
+
+            escaped = html_mod.escape(raw)
+            is_all_bold = all(r.bold for r in para.runs if r.text.strip()) if para.runs else False
+            font_size = None
+            for r in para.runs:
+                if r.font.size:
+                    font_size = r.font.size
+                    break
+
+            from docx.shared import Pt
+
+            if is_all_bold and font_size and font_size >= Pt(18):
+                paragraphs_html.append(f'<p style="font-size:22pt;font-weight:700;margin:0 0 2px;">{escaped}</p>')
+            elif font_size and font_size and font_size <= Pt(10) and "|" in raw:
+                paragraphs_html.append(f'<p style="font-size:9pt;color:#444;margin:0 0 10px;">{escaped}</p>')
+            elif is_all_bold and raw.strip() == raw.strip().upper() and len(raw.strip()) > 3:
+                paragraphs_html.append(
+                    f'<p style="font-size:10pt;font-weight:700;text-transform:uppercase;'
+                    f'border-bottom:1px solid #000;padding-bottom:2px;margin:12px 0 5px;">{escaped}</p>'
+                )
+            elif is_all_bold and ("—" in raw or " — " in raw):
+                paragraphs_html.append(f'<p style="font-size:10.5pt;font-weight:700;margin:8px 0 1px;">{escaped}</p>')
+            elif raw.strip().startswith("•"):
+                bullet = html_mod.escape(raw.strip().lstrip("•").strip())
+                paragraphs_html.append(f'<p style="font-size:10pt;margin:1px 0 1px 18px;text-indent:-12px;">• {bullet}</p>')
+            elif any(r.bold for r in para.runs if r.text.strip()):
+                parts = []
+                for r in para.runs:
+                    t = html_mod.escape(r.text)
+                    parts.append(f"<strong>{t}</strong>" if r.bold else t)
+                paragraphs_html.append(f'<p style="font-size:10pt;margin:1px 0;">{"".join(parts)}</p>')
+            else:
+                paragraphs_html.append(f'<p style="font-size:10pt;margin:4px 0;">{escaped}</p>')
+
+        html_content = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  @page {{ margin: 0.6in 0.75in; }}
+  body {{ font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #000; line-height: 1.3; }}
+  p {{ margin: 0; }}
+</style>
+</head><body>{"".join(paragraphs_html)}</body></html>"""
+
+        pdf_path = docx_path.replace(".docx", ".pdf")
+        WP_HTML(string=html_content).write_pdf(pdf_path)
+        return pdf_path
 
     return app

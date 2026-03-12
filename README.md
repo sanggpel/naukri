@@ -8,7 +8,7 @@ A personal job application assistant that automates job discovery, generates ATS
 - **Automated Scout** — Runs job searches on a schedule (default: every 6 hours) and sends new matches to Telegram
 - **ATS-Optimized Resume Generation** — Extracts keywords from job descriptions and tailors your resume with keyword matching and ATS score
 - **Cover Letter Generation** — Creates targeted cover letters for each role
-- **LinkedIn Referral Finder** — Searches your LinkedIn connections (1st and 2nd degree) at the target company using cookie-based Voyager API
+- **LinkedIn Referral Finder** — Searches your LinkedIn connections (1st and 2nd degree) at the target company using cookie-based Voyager API; surfaces warm paths via trusted contacts
 - **Document Export** — Generates PDF (via WeasyPrint) and DOCX output
 - **Web Dashboard** — FastAPI-based tracker for all your applications with filters, bulk actions, and status tracking
 - **Telegram Bot Interface** — Apply to jobs, search, find referrals, and trigger scouts directly from Telegram
@@ -135,8 +135,8 @@ discovery:
 
 scout:
   queries:
-    - "Software Engineer"
-    - "Backend Developer"
+    - "Engineering Manager"
+    - "Director of Engineering"
     # add your target job titles
   location: "Your Country"
   country: "Your Country"
@@ -148,6 +148,14 @@ scout:
   remote_only: false
   interval_hours: 6
   chat_id: null                           # auto-populated when you send /start to your bot
+  ai_filter: true                         # use LLM to filter irrelevant results
+  target_roles: "Engineering Manager, Director of Engineering, Product Manager (software)"
+  title_keywords: []                      # optional: only include titles containing these words
+  title_exclude:                          # always exclude titles containing these words
+    - retail
+    - food
+    - electrical
+    - construction
 
 output:
   format: pdf
@@ -155,7 +163,33 @@ output:
   cover_letter_template: templates/cover_letter_template.html
 ```
 
-### 7. Export LinkedIn cookies (for referral search)
+### 7. Set up trusted connections (optional — for warm path referrals)
+
+Trusted connections are 1st-degree LinkedIn connections you can easily reach out to for help. When the referral finder runs, it will:
+
+- Mark any 1st-degree referral at the target company as **★ Trusted** if they're on your list
+- For 2nd-degree referrals, check LinkedIn shared connections and surface a **🔗 Warm path via [Name]** if one of your trusted contacts knows them
+
+```bash
+cp config/trusted_connections.example.yaml config/trusted_connections.yaml
+```
+
+Edit `config/trusted_connections.yaml`:
+
+```yaml
+trusted_connections:
+  - name: "Jane Smith"
+    linkedin_url: "https://www.linkedin.com/in/janesmith"
+    note: "Ex-colleague at Acme, very responsive"
+
+  - name: "John Doe"
+    linkedin_url: "https://www.linkedin.com/in/johndoe"
+    note: "University friend in tech"
+```
+
+This file is in `.gitignore` and never committed.
+
+### 8. Export LinkedIn cookies (for referral search)
 
 1. Log into LinkedIn in your browser
 2. Use a browser extension like [Cookie-Editor](https://cookie-editor.com/) to export cookies as JSON
@@ -213,8 +247,10 @@ merinaukri/
 ├── requirements.txt
 ├── .env                       # GROQ_API_KEY (not committed)
 ├── config/
-│   ├── profile.yaml           # Your resume/profile data
-│   └── settings.yaml          # LLM, Telegram, LinkedIn, scout config
+│   ├── profile.yaml           # Your resume/profile data (not committed)
+│   ├── settings.yaml          # LLM, Telegram, LinkedIn, scout config (not committed)
+│   ├── trusted_connections.yaml        # Your trusted LinkedIn contacts (not committed)
+│   └── trusted_connections.example.yaml  # Example — copy and fill in
 ├── src/
 │   ├── models.py              # Pydantic data models
 │   ├── llm_client.py          # Unified Groq/Anthropic LLM client

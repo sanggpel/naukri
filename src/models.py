@@ -88,6 +88,8 @@ class NetworkMatch(BaseModel):
     current_title: str = ""
     company: str = ""
     linkedin_url: str = ""
+    warm_path_via: str = ""   # name of trusted contact who bridges to this person
+    warm_path_url: str = ""   # LinkedIn URL of that trusted contact
 
 
 class Application(BaseModel):

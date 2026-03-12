@@ -44,15 +44,15 @@
     <div class="card">
         <h3>Documents</h3>
         {% if app.resume_path %}
-        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;">
-            <a href="/download/{{ app.resume_path }}" class="btn btn-outline">Download Resume</a>
-            <button class="btn btn-outline" onclick="viewDoc('Resume — {{ app.company|e }}', '/view/{{ app.resume_path }}')">View Resume</button>
+        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <a href="/pdf/{{ app.resume_path }}" class="btn btn-primary" download>Download Resume PDF</a>
+            <button class="btn btn-outline" onclick="viewDoc('Resume — {{ app.company|e }}', '/view/{{ app.resume_path }}')">View</button>
         </div>
         {% endif %}
         {% if app.cover_letter_path %}
-        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;">
-            <a href="/download/{{ app.cover_letter_path }}" class="btn btn-outline">Download Cover Letter</a>
-            <button class="btn btn-outline" onclick="viewDoc('Cover Letter — {{ app.company|e }}', '/view/{{ app.cover_letter_path }}')">View Cover Letter</button>
+        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <a href="/pdf/{{ app.cover_letter_path }}" class="btn btn-primary" download>Download Cover Letter PDF</a>
+            <button class="btn btn-outline" onclick="viewDoc('Cover Letter — {{ app.company|e }}', '/view/{{ app.cover_letter_path }}')">View</button>
         </div>
         {% endif %}
         {% if app.description %}
@@ -84,9 +84,12 @@
             {% if first_degree %}
             <div style="margin-bottom:8px;font-weight:600;color:#2e7d32;">1st Degree — can refer you directly</div>
             {% for r in first_degree %}
-            <div class="referral-item">
+            <div class="referral-item" {% if r.warm_path_via %}style="border-left:3px solid #f9a825;padding-left:8px;"{% endif %}>
                 <span class="referral-name">{{ r.person_name }}</span>
                 <span class="referral-degree">1st</span>
+                {% if r.warm_path_via %}
+                <span style="background:#fff8e1;color:#f57f17;font-size:0.72rem;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:6px;">★ Trusted</span>
+                {% endif %}
                 {% if r.current_title %}<div class="referral-title">{{ r.current_title }}</div>{% endif %}
                 {% if r.linkedin_url %}<a href="{{ r.linkedin_url }}" target="_blank" class="referral-link">LinkedIn Profile</a>{% endif %}
             </div>
@@ -96,9 +99,19 @@
             {% if second_degree %}
             <div style="margin-bottom:8px;margin-top:12px;font-weight:600;color:#1565c0;">2nd Degree — ask for an intro</div>
             {% for r in second_degree %}
-            <div class="referral-item">
+            <div class="referral-item" {% if r.warm_path_via %}style="border-left:3px solid #f9a825;padding-left:8px;"{% endif %}>
                 <span class="referral-name">{{ r.person_name }}</span>
                 <span class="referral-degree">2nd</span>
+                {% if r.warm_path_via %}
+                <div style="margin-top:3px;font-size:0.8rem;color:#e65100;font-weight:500;">
+                    🔗 Warm path via
+                    {% if r.warm_path_url %}
+                    <a href="{{ r.warm_path_url }}" target="_blank" style="color:#e65100;">{{ r.warm_path_via }}</a>
+                    {% else %}
+                    {{ r.warm_path_via }}
+                    {% endif %}
+                </div>
+                {% endif %}
                 {% if r.current_title %}<div class="referral-title">{{ r.current_title }}</div>{% endif %}
                 {% if r.linkedin_url %}<a href="{{ r.linkedin_url }}" target="_blank" class="referral-link">LinkedIn Profile</a>{% endif %}
             </div>

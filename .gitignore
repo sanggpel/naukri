@@ -10,6 +10,7 @@ __pycache__/
 # Personal config (contains credentials, tokens, personal info)
 config/profile.yaml
 config/settings.yaml
+config/trusted_connections.yaml
 
 # LinkedIn cookies and all JSON data files
 *.json
