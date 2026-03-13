@@ -19,12 +19,26 @@
 </div>
 {% endif %}
 
+{% if no_profile %}
+<div style="margin-bottom:16px;padding:14px 18px;background:#fff3e0;border-left:4px solid #f57c00;border-radius:4px;display:flex;align-items:center;gap:12px;">
+    <span style="font-size:1.2rem;">&#9888;&#65039;</span>
+    <div>
+        <strong style="color:#e65100;">Profile not set up</strong>
+        <span style="color:#666;font-size:0.85rem;"> — Resume generation won't work without a profile.</span>
+        <a href="/profile" style="color:#1565c0;font-weight:600;margin-left:8px;">Set up your profile &rarr;</a>
+    </div>
+</div>
+{% endif %}
+
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
     <div></div>
-    <form action="/scout" method="post"
-          onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Scouting… please wait';">
-        <button type="submit" class="btn btn-success">Run Scout</button>
-    </form>
+    <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('addJobModal').classList.add('active')">+ Add Job</button>
+        <form action="/scout" method="post"
+              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Scouting… please wait';">
+            <button type="submit" class="btn btn-success">Run Scout</button>
+        </form>
+    </div>
 </div>
 
 <div class="stats-bar">
@@ -135,6 +149,9 @@
             </td>
             <td>
                 <span class="badge badge-{{ app.status }}">{{ app.status.replace('_', ' ') }}</span>
+                {% if not app.description %}
+                <span style="background:#fff3e0;color:#e65100;font-size:0.7rem;font-weight:600;padding:1px 5px;border-radius:8px;margin-left:4px;" title="No job description — click to fetch or paste">No JD</span>
+                {% endif %}
             </td>
             <td>
                 {% if app.ats_score %}
@@ -241,4 +258,52 @@ document.addEventListener('keydown', function(e) {
     <p>Try adjusting your search or <a href="/">clear all filters</a>.</p>
 </div>
 {% endif %}
+
+<!-- Add Job Modal -->
+<div class="modal-overlay" id="addJobModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:600px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Job Manually</div>
+            <button class="modal-close" onclick="document.getElementById('addJobModal').classList.remove('active')">&times;</button>
+        </div>
+        <form action="/add-job" method="post" style="padding:16px;">
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;">Job Title *</label>
+                <input type="text" name="job_title" required placeholder="e.g. Engineering Manager"
+                       style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;">Company</label>
+                <input type="text" name="company" placeholder="e.g. Asana"
+                       style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:12px;">
+                <div style="flex:1;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;">Location</label>
+                    <input type="text" name="location" placeholder="e.g. Remote, Vancouver"
+                           style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+                </div>
+                <div style="flex:1;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;">Job URL</label>
+                    <input type="url" name="url" placeholder="https://..."
+                           style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+                </div>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;">Job Description</label>
+                <textarea name="description" rows="8" placeholder="Paste the full job description here for resume/cover letter generation..."
+                          style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;resize:vertical;"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('addJobModal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Job</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') document.getElementById('addJobModal').classList.remove('active');
+});
+</script>
 {% endblock %}

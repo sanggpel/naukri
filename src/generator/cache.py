@@ -5,10 +5,14 @@ import os
 from datetime import datetime
 
 from ..models import ExtractedKeywords, GeneratedResume, ResumeSection
+from ..tracker import (
+    get_cover_letter_cache_entries,
+    get_resume_cache_entries,
+    save_cover_letter_cache_entry,
+    save_resume_cache_entry,
+)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "cache")
-RESUME_INDEX = os.path.join(CACHE_DIR, "resume_index.json")
-CL_INDEX = os.path.join(CACHE_DIR, "cl_index.json")
 
 # Minimum keyword overlap to consider a cached resume a match
 KEYWORD_MATCH_THRESHOLD = 0.6
@@ -16,19 +20,6 @@ KEYWORD_MATCH_THRESHOLD = 0.6
 
 def _ensure_cache_dir():
     os.makedirs(CACHE_DIR, exist_ok=True)
-
-
-def _load_index(path: str) -> list[dict]:
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
-    return []
-
-
-def _save_index(path: str, index: list[dict]):
-    _ensure_cache_dir()
-    with open(path, "w") as f:
-        json.dump(index, f, indent=2)
 
 
 def _keyword_overlap(keywords_a: list[str], keywords_b: list[str]) -> float:
@@ -51,7 +42,7 @@ def find_cached_resume(keywords: ExtractedKeywords) -> tuple[GeneratedResume | N
 
     Returns (resume, file_path, cache_entry) or (None, None, None) if no match.
     """
-    index = _load_index(RESUME_INDEX)
+    index = get_resume_cache_entries()
     target_keywords = keywords.ats_keywords + keywords.hard_skills
 
     best_match = None
@@ -93,7 +84,7 @@ def save_resume_to_cache(
     job_title: str = "",
     company: str = "",
 ):
-    """Save a generated resume to the cache index."""
+    """Save a generated resume to the cache."""
     _ensure_cache_dir()
 
     # Save the resume JSON
@@ -102,9 +93,8 @@ def save_resume_to_cache(
     with open(json_path, "w") as f:
         json.dump(resume.model_dump(), f, indent=2)
 
-    # Add to index
-    index = _load_index(RESUME_INDEX)
-    index.append({
+    # Add to SQLite index
+    save_resume_cache_entry({
         "timestamp": datetime.now().isoformat(),
         "job_title": job_title,
         "company": company,
@@ -117,7 +107,6 @@ def save_resume_to_cache(
         "resume_json_path": json_path,
         "docx_path": docx_path,
     })
-    _save_index(RESUME_INDEX, index)
 
 
 # ── Cover Letter Cache ────────────────────────────────────────────
@@ -128,7 +117,7 @@ def find_cached_cover_letter(keywords: ExtractedKeywords) -> tuple[str | None, d
 
     Returns (cover_letter_text, cache_entry) or (None, None) if no match.
     """
-    index = _load_index(CL_INDEX)
+    index = get_cover_letter_cache_entries()
     target_keywords = keywords.ats_keywords + keywords.hard_skills
 
     best_match = None
@@ -175,7 +164,7 @@ def save_cover_letter_to_cache(
     job_title: str = "",
     company: str = "",
 ):
-    """Save a generated cover letter to the cache index."""
+    """Save a generated cover letter to the cache."""
     _ensure_cache_dir()
 
     # Save the cover letter text
@@ -184,9 +173,8 @@ def save_cover_letter_to_cache(
     with open(text_path, "w") as f:
         f.write(cover_letter_text)
 
-    # Add to index
-    index = _load_index(CL_INDEX)
-    index.append({
+    # Add to SQLite index
+    save_cover_letter_cache_entry({
         "timestamp": datetime.now().isoformat(),
         "job_title": job_title,
         "company": company,
@@ -196,4 +184,3 @@ def save_cover_letter_to_cache(
         "text_path": text_path,
         "docx_path": docx_path,
     })
-    _save_index(CL_INDEX, index)

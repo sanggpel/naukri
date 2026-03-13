@@ -1,12 +1,12 @@
 """Job discovery using python-jobspy to search multiple job boards."""
 
 import hashlib
-import json
 import os
 
 from jobspy import scrape_jobs
 
 from ..models import JobListing
+from ..tracker import save_job_to_cache
 
 
 def search_jobs(
@@ -15,6 +15,7 @@ def search_jobs(
     sources: list[str] | None = None,
     max_results: int = 30,
     country: str = "Canada",
+    hours_old: int = 336,
 ) -> list[JobListing]:
     """Search job boards and return structured job listings."""
     if sources is None:
@@ -27,7 +28,7 @@ def search_jobs(
             location=location,
             results_wanted=max_results,
             country_indeed=country,
-            hours_old=72,
+            hours_old=hours_old,
         )
     except Exception as e:
         print(f"JobSpy scrape error: {e}")
@@ -56,15 +57,6 @@ def search_jobs(
             salary=_clean(row.get("min_amount")),
         )
         jobs.append(job)
-        _save_job(job)
+        save_job_to_cache(job.model_dump())
 
     return jobs
-
-
-def _save_job(job: JobListing):
-    """Cache job listing to disk."""
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "jobs")
-    os.makedirs(data_dir, exist_ok=True)
-    path = os.path.join(data_dir, f"{job.id}.json")
-    with open(path, "w") as f:
-        json.dump(job.model_dump(), f, indent=2)

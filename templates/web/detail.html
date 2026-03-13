@@ -43,6 +43,12 @@
     <!-- Documents -->
     <div class="card">
         <h3>Documents</h3>
+        {% if fetch_error %}
+        <div style="margin-bottom:10px;padding:10px 12px;background:#fff3e0;border-left:3px solid #f57c00;border-radius:4px;font-size:0.85rem;color:#e65100;">
+            <strong>Fetch failed:</strong> {{ fetch_error }}
+            {% if fetch_method %}<span style="color:#888;"> (tried: {{ fetch_method }})</span>{% endif %}
+        </div>
+        {% endif %}
         {% if app.resume_path %}
         <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <a href="/pdf/{{ app.resume_path }}" class="btn btn-primary" download>Download Resume PDF</a>
@@ -62,10 +68,71 @@
                 {% if app.resume_path %}Regenerate{% else %}Generate{% endif %} Resume &amp; Cover Letter
             </button>
         </form>
-        {% elif not app.resume_path and not app.cover_letter_path %}
-        <p style="color:#888;">No job description available — cannot generate documents.</p>
+        {% else %}
+        <!-- Missing description — offer fetch + paste options -->
+        <div style="background:#fff3e0;border-left:3px solid #f57c00;padding:12px 14px;border-radius:4px;margin-bottom:12px;">
+            <div style="font-weight:600;color:#e65100;margin-bottom:6px;">No job description available</div>
+            <p style="color:#666;font-size:0.85rem;margin:0;">Fetch it from the job URL or paste it manually below.</p>
+        </div>
+        {% if app.url %}
+        <form action="/application/{{ app.id }}/fetch-description" method="post" style="margin-bottom:10px;"
+              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Fetching... please wait';">
+            <button type="submit" class="btn btn-primary">Fetch Description from URL</button>
+        </form>
+        {% endif %}
+        <details style="margin-top:8px;">
+            <summary style="cursor:pointer;color:#1565c0;font-size:0.85rem;font-weight:500;">Paste description manually</summary>
+            <form action="/application/{{ app.id }}/save-description" method="post" style="margin-top:8px;">
+                <textarea name="description" rows="8" placeholder="Paste the full job description here..." style="width:100%;font-size:0.85rem;"></textarea>
+                <button type="submit" class="btn btn-success" style="margin-top:6px;">Save Description</button>
+            </form>
+        </details>
         {% endif %}
     </div>
+
+    <!-- Fit Summary & Gap Analysis -->
+    {% if app.fit_summary or app.gap_analysis %}
+    <div class="card full-width" style="display:flex;gap:24px;flex-wrap:wrap;">
+        {% if app.fit_summary %}
+        <div style="flex:1;min-width:280px;">
+            <h3 style="color:#2e7d32;margin-bottom:8px;">Why You're a Fit</h3>
+            <ul style="margin:0;padding-left:18px;font-size:0.9rem;line-height:1.6;">
+                {% for item in app.fit_summary %}
+                <li style="margin-bottom:4px;">{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% if app.gap_analysis %}
+        <div style="flex:1;min-width:280px;">
+            <h3 style="color:#e65100;margin-bottom:8px;">Gaps & Suggestions</h3>
+            <ul style="margin:0;padding-left:18px;font-size:0.9rem;line-height:1.6;">
+                {% for item in app.gap_analysis %}
+                <li style="margin-bottom:4px;">{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+    {% if app.gap_analysis %}
+    <div class="card full-width" style="border:1px solid #e3f2fd;">
+        <h3 style="color:#1565c0;margin-bottom:8px;">Fill the Gaps</h3>
+        <p style="color:#666;font-size:0.85rem;margin-bottom:10px;">
+            Have experience or skills that address the gaps above? Describe them below.
+            This will be incorporated into your resume and cover letter, <strong>and saved to your profile</strong> for future applications.
+        </p>
+        <form action="/application/{{ app.id }}/fill-gaps" method="post"
+              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Updating profile & regenerating...';">
+            <textarea name="additional_context" rows="6" placeholder="Example: I have 2 years of experience building agentic systems using LangGraph and CrewAI at my current role. I designed evaluation frameworks for our LLM outputs including automated scoring, drift monitoring, and human-in-the-loop review pipelines..."
+                      style="width:100%;font-size:0.85rem;line-height:1.5;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+                <button type="submit" class="btn btn-primary">Update Profile & Regenerate</button>
+                <span style="color:#888;font-size:0.8rem;">Updates your profile.yaml + regenerates resume & cover letter</span>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+    {% endif %}
 
     <!-- Referrals -->
     <div class="card">

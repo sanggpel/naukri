@@ -20,8 +20,8 @@ def generate_resume(
     for category, skills in profile.skills.items():
         skills_text += f"{category}: {', '.join(skills)}\n"
 
-    prompt = f"""You are an expert resume writer and ATS optimization specialist. Create a tailored resume
-for the candidate below, optimized for the target job.
+    prompt = f"""You are writing a resume for a real person applying to a real job. Your goal is a resume
+that sounds like a confident human wrote it — not a template, not a marketing brochure.
 
 CANDIDATE PROFILE:
 Name: {profile.name}
@@ -49,23 +49,52 @@ Project Highlights:
 TARGET JOB DESCRIPTION:
 {job_description[:4000]}
 
-ATS KEYWORDS TO INCORPORATE:
+ATS KEYWORDS TO INCORPORATE (use naturally, not forced):
 Hard Skills: {', '.join(keywords.hard_skills)}
 Soft Skills: {', '.join(keywords.soft_skills)}
 Required Experience: {', '.join(keywords.required_experience)}
 Critical ATS Keywords: {', '.join(keywords.ats_keywords)}
 
-INSTRUCTIONS:
-1. Write an EXECUTIVE SUMMARY (3-4 sentences) tailored to this specific role, naturally incorporating the most important ATS keywords.
-2. Create CORE COMPETENCIES organized into categories that match what this job is looking for. Use the exact terminology from the job description where the candidate genuinely has the skill.
-3. Rewrite EXPERIENCE bullets to emphasize achievements relevant to this role. Keep it truthful but reframe existing experience to align with the job requirements. Use action verbs and quantify results where possible.
-4. Select the most relevant EDUCATION, CERTIFICATIONS, and PROJECT HIGHLIGHTS.
-5. Estimate an ATS match score (0-100) based on keyword coverage.
+RESUME WRITING RULES:
+
+EXECUTIVE SUMMARY (3-4 sentences):
+- Write in plain, direct language. No "Results-driven" or "Dynamic leader" or "Passionate about".
+- Lead with the strongest fact: years of experience, what they actually built, team sizes they led.
+- Second sentence: their most relevant recent work (e.g., "Recently built an AI SaaS platform...").
+- Third sentence: what makes them specifically suited for THIS role, not any role.
+- Sound like a person describing themselves to a peer, not a marketing pitch.
+
+TECHNOLOGY STACK (new section — add right after summary):
+- List actual technologies in a flat format: "Python, Django, PostgreSQL, AWS, Docker, LLM APIs, RAG"
+- Only include technologies the candidate actually has from their profile.
+- Use the exact tech names from the job description where the candidate genuinely has the skill.
+
+CORE COMPETENCIES:
+- 3-4 categories max with 4-5 skills each.
+- Use plain terms. "Team leadership" not "Transformative people leadership".
+- Drop any buzzword that could apply to literally anyone.
+
+EXPERIENCE:
+- Each bullet must contain a SPECIFIC action and a SPECIFIC outcome or scope.
+- BAD: "Improved engineering standards through refactoring initiatives"
+- GOOD: "Rewrote the billing pipeline from monolith to microservices, reducing deploy time from 2 hours to 15 minutes"
+- Include numbers: team sizes, revenue impact, percentage improvements, system scale.
+- If the original bullet has no metric, reframe it with scope (e.g., "for a platform serving 500K users").
+- Recent/relevant roles: 4-5 strong bullets. Older roles: 2-3 bullets.
+- KEEP ALL ROLES from the profile. Do NOT skip any.
+
+GENERAL:
+- DO NOT fabricate experience, metrics, or skills not in the profile.
+- DO NOT use these words/phrases: "results-driven", "leveraged", "spearheaded", "cutting-edge",
+  "passionate", "dynamic", "synergy", "paradigm", "utilize", "strategize", "orchestrate".
+- Prefer: "built", "led", "designed", "shipped", "reduced", "grew", "managed", "launched".
+- The resume should fill 2 full pages for a senior candidate.
 
 Return a JSON object with this exact structure:
 {{
   "sections": {{
     "executive_summary": "The tailored summary text",
+    "technology_stack": "Python, Django, PostgreSQL, AWS, ...",
     "core_competencies": {{
       "Category Name": ["skill1", "skill2"],
       "Another Category": ["skill3", "skill4"]
@@ -87,14 +116,7 @@ Return a JSON object with this exact structure:
   "ats_score_estimate": 85
 }}
 
-IMPORTANT:
-- Keep experience TRUTHFUL — rephrase and reframe, but do NOT fabricate
-- Naturally weave ATS keywords into bullet points, not just list them
-- Include ALL work experience entries from the profile. Do NOT skip any roles. Recent roles get 3-4 bullets, older roles get 2-3 bullets.
-- The resume MUST fill 2 full pages. This is a senior leader with 20+ years of experience — a 1-page resume is unacceptable.
-- Include 4-6 core competency categories with 4-6 skills each
-- Include all education, certifications, and project highlights
-- Return ONLY valid JSON, no other text."""
+Return ONLY valid JSON, no other text."""
 
     text = get_llm_response(prompt, max_tokens=8000)
     data = parse_json_response(text)

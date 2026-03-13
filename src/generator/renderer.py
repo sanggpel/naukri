@@ -164,6 +164,14 @@ def render_resume_docx(
     run = p.add_run(resume.sections.executive_summary)
     _set_font(run, size_pt=10)
 
+    # ── TECHNOLOGY STACK ── (if present)
+    if resume.sections.technology_stack:
+        _add_resume_heading(doc, "TECHNOLOGY STACK")
+        p = doc.add_paragraph()
+        _set_paragraph_spacing(p, before=0, after=4, line=13)
+        run = p.add_run(resume.sections.technology_stack)
+        _set_font(run, size_pt=10)
+
     # ── CORE COMPETENCIES ──
     _add_resume_heading(doc, "CORE COMPETENCIES")
     for category, skills in resume.sections.core_competencies.items():

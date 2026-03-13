@@ -16,7 +16,7 @@ def _ensure_data_dir():
 
 
 def _init_db():
-    """Create the applications table if it doesn't exist."""
+    """Create all tables if they don't exist."""
     _ensure_data_dir()
     with _get_conn() as conn:
         conn.execute("""
@@ -38,7 +38,74 @@ def _init_db():
                 notes TEXT DEFAULT ''
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS seen_jobs (
+                job_id TEXT PRIMARY KEY,
+                added_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS network_cache (
+                cache_key TEXT PRIMARY KEY,
+                matches TEXT DEFAULT '[]',
+                timestamp TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_cache (
+                id TEXT PRIMARY KEY,
+                title TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                location TEXT DEFAULT '',
+                url TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                date_posted TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                salary TEXT DEFAULT '',
+                cached_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS resume_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT DEFAULT (datetime('now')),
+                job_title TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                seniority_level TEXT DEFAULT '',
+                ats_keywords TEXT DEFAULT '[]',
+                hard_skills TEXT DEFAULT '[]',
+                soft_skills TEXT DEFAULT '[]',
+                ats_score INTEGER DEFAULT 0,
+                matched_keywords TEXT DEFAULT '[]',
+                resume_json_path TEXT DEFAULT '',
+                docx_path TEXT DEFAULT ''
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cover_letter_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT DEFAULT (datetime('now')),
+                job_title TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                seniority_level TEXT DEFAULT '',
+                ats_keywords TEXT DEFAULT '[]',
+                hard_skills TEXT DEFAULT '[]',
+                text_path TEXT DEFAULT '',
+                docx_path TEXT DEFAULT ''
+            )
+        """)
+        # Add new columns if they don't exist (safe migration)
+        _add_column_if_missing(conn, "applications", "fit_summary", "TEXT DEFAULT '[]'")
+        _add_column_if_missing(conn, "applications", "gap_analysis", "TEXT DEFAULT '[]'")
     _migrate_json_if_needed()
+
+
+def _add_column_if_missing(conn, table: str, column: str, col_type: str):
+    """Add a column to a table if it doesn't already exist."""
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    columns = {row[1] for row in cursor.fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 def _migrate_json_if_needed():
@@ -79,6 +146,8 @@ def _row_to_app(row: sqlite3.Row) -> Application:
     """Convert a database row to an Application model."""
     d = dict(row)
     d["referrals"] = json.loads(d.get("referrals") or "[]")
+    d["fit_summary"] = json.loads(d.get("fit_summary") or "[]")
+    d["gap_analysis"] = json.loads(d.get("gap_analysis") or "[]")
     return Application(**d)
 
 
@@ -88,14 +157,16 @@ def _insert_app(conn: sqlite3.Connection, app: Application):
         INSERT OR REPLACE INTO applications
         (id, job_title, company, location, url, source, date_posted,
          date_generated, status, resume_path, cover_letter_path,
-         ats_score, description, referrals, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ats_score, description, referrals, notes, fit_summary, gap_analysis)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         app.id, app.job_title, app.company, app.location, app.url,
         app.source, app.date_posted, app.date_generated, app.status,
         app.resume_path, app.cover_letter_path, app.ats_score,
         app.description, json.dumps([r.model_dump() for r in app.referrals]),
         app.notes,
+        json.dumps(app.fit_summary),
+        json.dumps(app.gap_analysis),
     ))
 
 
@@ -146,3 +217,131 @@ def delete_application(app_id: str) -> bool:
     with _get_conn() as conn:
         conn.execute("DELETE FROM applications WHERE id = ?", (app_id,))
         return conn.total_changes > 0
+
+
+# ── Seen Jobs (scout) ────────────────────────────────────────────────────────
+
+def load_seen_job_ids() -> set:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT job_id FROM seen_jobs").fetchall()
+        return {r["job_id"] for r in rows}
+
+
+def save_seen_job_ids(ids: set):
+    with _get_conn() as conn:
+        for job_id in ids:
+            conn.execute(
+                "INSERT OR IGNORE INTO seen_jobs (job_id) VALUES (?)", (job_id,)
+            )
+
+
+# ── Network Cache (linkedin) ─────────────────────────────────────────────────
+
+def get_network_cache(cache_key: str, ttl_hours: int = 24) -> list[dict] | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT matches, timestamp FROM network_cache WHERE cache_key = ?",
+            (cache_key,),
+        ).fetchone()
+        if not row:
+            return None
+        from datetime import datetime, timedelta
+        cached_time = datetime.fromisoformat(row["timestamp"])
+        matches = json.loads(row["matches"])
+        if not matches:
+            return None  # don't use empty cache
+        if datetime.now() - cached_time > timedelta(hours=ttl_hours):
+            return None
+        return matches
+
+
+def save_network_cache(cache_key: str, matches: list[dict]):
+    from datetime import datetime
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO network_cache (cache_key, matches, timestamp) VALUES (?, ?, ?)",
+            (cache_key, json.dumps(matches), datetime.now().isoformat()),
+        )
+
+
+# ── Job Cache (scraper) ──────────────────────────────────────────────────────
+
+def save_job_to_cache(job_data: dict):
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO job_cache
+               (id, title, company, location, url, description, date_posted, source, salary)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                job_data["id"], job_data.get("title", ""), job_data.get("company", ""),
+                job_data.get("location", ""), job_data.get("url", ""),
+                job_data.get("description", ""), job_data.get("date_posted", ""),
+                job_data.get("source", ""), job_data.get("salary", ""),
+            ),
+        )
+
+
+# ── Resume / Cover Letter Cache (generator) ──────────────────────────────────
+
+def get_resume_cache_entries() -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM resume_cache ORDER BY timestamp DESC").fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["ats_keywords"] = json.loads(d.get("ats_keywords") or "[]")
+            d["hard_skills"] = json.loads(d.get("hard_skills") or "[]")
+            d["soft_skills"] = json.loads(d.get("soft_skills") or "[]")
+            d["matched_keywords"] = json.loads(d.get("matched_keywords") or "[]")
+            result.append(d)
+        return result
+
+
+def save_resume_cache_entry(entry: dict):
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO resume_cache
+               (timestamp, job_title, company, seniority_level, ats_keywords,
+                hard_skills, soft_skills, ats_score, matched_keywords,
+                resume_json_path, docx_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry.get("timestamp", ""), entry.get("job_title", ""),
+                entry.get("company", ""), entry.get("seniority_level", ""),
+                json.dumps(entry.get("ats_keywords", [])),
+                json.dumps(entry.get("hard_skills", [])),
+                json.dumps(entry.get("soft_skills", [])),
+                entry.get("ats_score", 0),
+                json.dumps(entry.get("matched_keywords", [])),
+                entry.get("resume_json_path", ""), entry.get("docx_path", ""),
+            ),
+        )
+
+
+def get_cover_letter_cache_entries() -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM cover_letter_cache ORDER BY timestamp DESC").fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["ats_keywords"] = json.loads(d.get("ats_keywords") or "[]")
+            d["hard_skills"] = json.loads(d.get("hard_skills") or "[]")
+            result.append(d)
+        return result
+
+
+def save_cover_letter_cache_entry(entry: dict):
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO cover_letter_cache
+               (timestamp, job_title, company, seniority_level, ats_keywords,
+                hard_skills, text_path, docx_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry.get("timestamp", ""), entry.get("job_title", ""),
+                entry.get("company", ""), entry.get("seniority_level", ""),
+                json.dumps(entry.get("ats_keywords", [])),
+                json.dumps(entry.get("hard_skills", [])),
+                entry.get("text_path", ""), entry.get("docx_path", ""),
+            ),
+        )

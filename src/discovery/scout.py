@@ -7,26 +7,10 @@ from datetime import datetime
 
 from ..models import JobListing
 from ..profile_loader import load_settings
+from ..tracker import load_seen_job_ids, save_seen_job_ids
 from .scraper import search_jobs
 
 logger = logging.getLogger(__name__)
-
-SEEN_JOBS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "seen_jobs.json")
-
-
-def _load_seen_ids() -> set:
-    """Load the set of job IDs we've already sent to the user."""
-    if os.path.exists(SEEN_JOBS_PATH):
-        with open(SEEN_JOBS_PATH, "r") as f:
-            data = json.load(f)
-            return set(data.get("ids", []))
-    return set()
-
-
-def _save_seen_ids(ids: set):
-    os.makedirs(os.path.dirname(SEEN_JOBS_PATH), exist_ok=True)
-    with open(SEEN_JOBS_PATH, "w") as f:
-        json.dump({"ids": list(ids), "updated": datetime.now().isoformat()}, f)
 
 
 def _ai_filter_jobs(
@@ -92,6 +76,7 @@ def scout_jobs() -> list[JobListing]:
     country = scout_config.get("country", settings["discovery"].get("default_country", "Canada"))
     sources = scout_config.get("sources", settings["discovery"]["default_sources"])
     max_per_query = scout_config.get("max_per_query", 15)
+    hours_old = scout_config.get("hours_old", 336)  # default 2 weeks
     remote_only = scout_config.get("remote_only", False)
     ai_filter = scout_config.get("ai_filter", False)
     target_roles = scout_config.get("target_roles", ", ".join(queries))
@@ -104,7 +89,7 @@ def scout_jobs() -> list[JobListing]:
     title_keywords = [kw.lower() for kw in scout_config.get("title_keywords", [])]
     title_exclude = [kw.lower() for kw in scout_config.get("title_exclude", [])]
 
-    seen_ids = _load_seen_ids()
+    seen_ids = load_seen_job_ids()
     new_jobs = []
 
     for query in queries:
@@ -116,6 +101,7 @@ def scout_jobs() -> list[JobListing]:
                 sources=sources,
                 max_results=max_per_query,
                 country=country,
+                hours_old=hours_old,
             )
 
             for job in jobs:
@@ -169,7 +155,7 @@ def scout_jobs() -> list[JobListing]:
     for job in new_jobs:
         seen_ids.add(job.id)
 
-    _save_seen_ids(seen_ids)
+    save_seen_job_ids(seen_ids)
     logger.info(f"Scout complete: {len(new_jobs)} new jobs found")
     return new_jobs
 

@@ -5,9 +5,11 @@ A personal job application assistant that automates job discovery, generates ATS
 ## Features
 
 - **Job Discovery** — Searches Indeed, LinkedIn, and Glassdoor using [python-jobspy](https://github.com/Bunsly/JobSpy)
-- **Automated Scout** — Runs job searches on a schedule (default: every 6 hours) and sends new matches to Telegram
-- **ATS-Optimized Resume Generation** — Extracts keywords from job descriptions and tailors your resume with keyword matching and ATS score
+- **Automated Scout** — Searches Indeed, LinkedIn, and Glassdoor on a schedule (default: every 6 hours), looks back 2 weeks by default, with AI-powered relevance filtering
+- **ATS-Optimized Resume Generation** — Extracts keywords from job descriptions and tailors your resume with keyword matching and ATS score breakdown (skills match, experience alignment, keyword coverage, role relevance)
 - **Cover Letter Generation** — Creates targeted cover letters for each role
+- **Fit Summary & Gap Analysis** — Shows why you're a fit and what gaps to address for each job
+- **Smart Description Fetcher** — When job boards don't return a description, fetches it via headless browser (Playwright) with manual paste fallback
 - **LinkedIn Referral Finder** — Searches your LinkedIn connections (1st and 2nd degree) at the target company using cookie-based Voyager API; surfaces warm paths via trusted contacts
 - **Document Export** — Generates PDF (via WeasyPrint) and DOCX output
 - **Web Dashboard** — FastAPI-based tracker for all your applications with filters, bulk actions, and status tracking
@@ -75,7 +77,14 @@ GROQ_API_KEY=gsk_paste_your_key_here
 
 This is the most important file. The better it describes you, the better your generated resumes will be.
 
-You don't need to write it by hand — see [Building Your Profile with AI](#building-your-profile-with-ai) below to have ChatGPT or Claude generate it from your LinkedIn or existing resume.
+**Easiest way:** Open the web dashboard (`python dashboard.py`), go to the **Profile** page, and click **Import / Rebuild**. You can:
+- **Paste a LinkedIn URL** — we'll fetch and parse it automatically
+- **Upload a resume PDF/DOCX** — we'll extract the text and build your profile
+- **Paste plain text** — copy from anywhere and we'll structure it
+
+You can also edit your profile directly in the dashboard at any time.
+
+Alternatively, you can write it by hand or use AI — see [Building Your Profile with AI](#building-your-profile-with-ai) below.
 
 The file should contain: your name, email, phone, location, summary, skills, work experience (with bullet points), and education. See `config/profile.example.yaml` for the exact format.
 
@@ -97,9 +106,39 @@ scout:
     - "Director of Engineering"
   location: "Canada"
   country: "Canada"
+  sources:                                  # job boards to search
+    - indeed
+    - linkedin
+    - glassdoor
+  hours_old: 336                            # how far back to look (default: 2 weeks / 336 hours)
+  max_per_query: 15                         # max results per search query
+  interval_hours: 6                         # how often scout runs automatically (Telegram bot only)
+  ai_filter: true                           # use LLM to filter out irrelevant jobs
+  target_roles: >                           # description of roles you want (used by AI filter)
+    Senior engineering leadership roles...
+  title_exclude:                            # keywords in title to auto-skip (fast, runs before AI)
+    - retail
+    - healthcare
+    - construction
 ```
 
 Everything else has sensible defaults. See `config/settings.example.yaml` for all options.
+
+### Scout — how it works
+
+The scout searches **Indeed, LinkedIn, and Glassdoor** for jobs matching your configured queries. By default it looks back **2 weeks** (336 hours) — configurable via `hours_old` in `settings.yaml`.
+
+**Filtering pipeline:**
+1. **Title exclude** — fast keyword blocklist drops obviously irrelevant jobs (retail, healthcare, etc.)
+2. **Deduplication** — same job appearing across multiple queries/sources is merged
+3. **AI filter** (optional) — sends remaining jobs to the LLM in batches, keeps only direct matches for your target roles
+
+Jobs that have already been seen are tracked in the database and never shown twice.
+
+**Running scout:**
+- **Web dashboard** — click the "Run Scout" button
+- **Telegram bot** — send `/scout` or just type "scout"
+- **Automatic** — if the Telegram bot is running, scout runs every `interval_hours` (default: 6)
 
 ### 4. Trusted connections (optional — for warm path referrals)
 
@@ -167,6 +206,11 @@ The dashboard at `http://127.0.0.1:8080` provides:
 - **Document downloads** — Download generated resumes and cover letters
 - **Referral search** — Find LinkedIn connections at any company directly from the dashboard
 - **Detail view** — Full job details, notes, status updates, and referral info
+- **Add jobs manually** — Click "+ Add Job" to add a job with title, company, URL, and description
+- **Fetch missing descriptions** — Jobs without descriptions are flagged "No JD"; click to auto-fetch or paste manually
+- **Generate documents** — One click generates resume, cover letter, fit summary, gap analysis, and ATS score
+- **Fill gaps** — When gaps are identified, provide additional context to update your profile and regenerate
+- **Profile management** — View and edit your profile directly in the dashboard; import from LinkedIn, resume PDF, or plain text
 
 ## Project Structure
 
@@ -174,6 +218,8 @@ The dashboard at `http://127.0.0.1:8080` provides:
 merinaukri/
 ├── main.py                    # Telegram bot entry point
 ├── dashboard.py               # Web dashboard entry point
+├── setup.sh                   # One-command setup script
+├── clean_db.sh                # Database cleanup (keep applied/rejected/not_relevant)
 ├── requirements.txt
 ├── .env                       # GROQ_API_KEY (not committed)
 ├── config/
@@ -185,16 +231,23 @@ merinaukri/
 │   ├── models.py              # Pydantic data models
 │   ├── llm_client.py          # Unified Groq/Anthropic LLM client
 │   ├── profile_loader.py      # Loads profile.yaml
+│   ├── profile_builder.py     # Import profile from LinkedIn/PDF/text via LLM
+│   ├── profile_updater.py     # Update profile with gap-filling context
 │   ├── tracker.py             # Application CRUD (SQLite)
 │   ├── bot/
 │   │   ├── app.py             # Bot setup, command registration, scheduler
 │   │   └── handlers.py        # All Telegram command handlers
 │   ├── discovery/
-│   │   └── scraper.py         # Job board scraping via python-jobspy
+│   │   ├── scraper.py         # Job board scraping via python-jobspy
+│   │   ├── scout.py           # Automated job scout (search + filter + dedup)
+│   │   ├── parser.py          # Single URL parser (LinkedIn, Indeed, Greenhouse, etc.)
+│   │   └── fetcher.py         # Smart description fetcher (requests → Playwright → screenshot)
 │   ├── generator/
-│   │   ├── keywords.py        # ATS keyword extraction
-│   │   ├── resume.py          # Resume generation
-│   │   ├── cover_letter.py    # Cover letter generation
+│   │   ├── unified.py         # Single-call resume + cover letter + fit + gaps + ATS
+│   │   ├── keywords.py        # ATS keyword extraction (fallback)
+│   │   ├── resume.py          # Resume generation (fallback)
+│   │   ├── cover_letter.py    # Cover letter generation (fallback)
+│   │   ├── cache.py           # Resume/cover letter caching
 │   │   └── renderer.py        # PDF/DOCX rendering
 │   ├── network/
 │   │   └── linkedin.py        # LinkedIn Voyager API (cookie auth)
@@ -282,6 +335,7 @@ and achievements, then generate the YAML at the end using this structure:
 - **Data storage** — Applications are stored in a SQLite database (`data/tracker.db`). If upgrading from a previous JSON-based version, existing `applications.json` data is auto-migrated on first run.
 - **LinkedIn cookies** — Cookies expire periodically. Re-export them when referral searches stop working.
 - **Scheduled scouting** — The bot must be running for scheduled scouts to work. Send `/start` to your bot first so it knows your chat ID.
+- **Database cleanup** — Run `./clean_db.sh` to remove all jobs except applied, rejected, and not_relevant, and reset the seen-jobs tracker so scout finds fresh results.
 
 ## License
 

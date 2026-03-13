@@ -68,6 +68,7 @@ class ExtractedKeywords(BaseModel):
 
 class ResumeSection(BaseModel):
     executive_summary: str = ""
+    technology_stack: str = ""
     core_competencies: dict[str, list[str]] = {}
     experience: list[dict] = []
     education: list[str] = []
@@ -108,3 +109,5 @@ class Application(BaseModel):
     description: str = ""
     referrals: list[NetworkMatch] = []
     notes: str = ""
+    fit_summary: list[str] = []
+    gap_analysis: list[str] = []

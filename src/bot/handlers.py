@@ -11,17 +11,9 @@ from telegram.ext import ContextTypes
 from ..discovery.parser import parse_job_url
 from ..discovery.scraper import search_jobs
 from ..discovery.scout import scout_jobs, format_scout_message
-from ..generator.cache import (
-    adapt_cover_letter,
-    find_cached_cover_letter,
-    find_cached_resume,
-    save_cover_letter_to_cache,
-    save_resume_to_cache,
-)
-from ..generator.cover_letter import generate_cover_letter
-from ..generator.keywords import extract_keywords
+from ..generator.cache import save_cover_letter_to_cache, save_resume_to_cache
 from ..generator.renderer import render_cover_letter_pdf, render_resume_pdf
-from ..generator.resume import generate_resume
+from ..generator.unified import generate_application
 from ..models import Application, JobListing
 from ..network.linkedin import find_connections_at_company, format_referral_message
 from ..profile_loader import load_profile, load_settings
@@ -209,10 +201,20 @@ async def referrals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle plain URLs pasted by the user."""
+    """Handle plain URLs, pasted job descriptions, and text commands."""
     if not update.message or not update.message.text:
         return
     text = update.message.text.strip()
+
+    # Handle gap-fill response
+    if context.user_data.get("awaiting_gap_fill"):
+        if text.lower() in ("/skip", "skip"):
+            context.user_data.pop("awaiting_gap_fill", None)
+            context.user_data.pop("gap_fill_job", None)
+            await update.message.reply_text("Skipped. Your resume stands as-is.")
+            return
+        await _process_gap_fill(update, context, text)
+        return
 
     # Check if the message contains a URL
     url_pattern = re.compile(r'https?://\S+')
@@ -223,10 +225,17 @@ async def handle_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _process_job_url(update, context, url)
     elif text.lower() in ("scout", "run scout"):
         await scout_command(update, context)
+    elif context.user_data.get("awaiting_description"):
+        # User is pasting a job description after a URL failed
+        await _process_pasted_description(update, context, text)
+    elif len(text) > 200:
+        # Long text is likely a pasted job description
+        await _process_pasted_description(update, context, text)
     else:
         await update.message.reply_text(
             "I didn't recognize that as a job URL. Try:\n"
             "- Paste a job posting URL\n"
+            "- Paste a full job description (I'll process it directly)\n"
             "- /scout to find new matching jobs\n"
             "- /search <query> to find jobs\n"
             "- /help for all commands"
@@ -382,10 +391,30 @@ async def _process_job_url(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         return
 
     if not job.description:
+        # Try smart fetcher (playwright headless browser, etc.)
+        await update.message.reply_text("Basic parsing found no description — trying headless browser...")
+        try:
+            from ..discovery.fetcher import fetch_description
+            result = fetch_description(url)
+            if result["description"]:
+                job.description = result["description"]
+                await update.message.reply_text(f"Got it via {result['method']}!")
+        except Exception as e:
+            logger.warning(f"Smart fetcher failed: {e}")
+
+    if not job.description:
+        # Still no description — ask user to paste it
+        context.user_data["awaiting_description"] = True
+        context.user_data["pending_job"] = {
+            "url": url,
+            "title": job.title or "",
+            "company": job.company or "",
+        }
         await update.message.reply_text(
             "Could not extract job description from that URL. "
-            "The page might be behind a login wall. "
-            "Try copying the job description and sending it directly."
+            "The page might be behind a login wall or require JavaScript.\n\n"
+            "**Paste the full job description here** and I'll process it."
+            , parse_mode="Markdown"
         )
         return
 
@@ -401,56 +430,83 @@ async def _process_job_url(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     await _process_job_listing(update.message, context, job)
 
 
+async def _process_pasted_description(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
+    """Process a pasted job description (no URL needed)."""
+    import hashlib
+
+    # Clear the awaiting flag
+    pending = context.user_data.pop("pending_job", {})
+    context.user_data.pop("awaiting_description", None)
+
+    job_id = hashlib.md5(description[:500].encode()).hexdigest()[:12]
+    job = JobListing(
+        id=job_id,
+        title=pending.get("title", ""),
+        company=pending.get("company", ""),
+        url=pending.get("url", ""),
+        description=description,
+    )
+
+    await update.message.reply_text(
+        "Got the job description! Generating your resume and cover letter...\n"
+        "(This takes about 30-60 seconds)"
+    )
+    await _process_job_listing(update.message, context, job)
+
+
+async def _process_gap_fill(update: Update, context: ContextTypes.DEFAULT_TYPE, additional_context: str):
+    """Update profile with user's additional context and regenerate documents."""
+    job = context.user_data.pop("gap_fill_job", None)
+    context.user_data.pop("awaiting_gap_fill", None)
+
+    if not job or not job.description:
+        await update.message.reply_text("No job context found. Please apply to a job first.")
+        return
+
+    await update.message.reply_text(
+        "Updating your profile and regenerating resume & cover letter...\n"
+        "(This takes about 30-60 seconds)"
+    )
+
+    try:
+        from ..profile_updater import update_profile_from_context
+        update_profile_from_context(additional_context, [])
+    except Exception as e:
+        logger.error(f"Profile update failed: {e}")
+        await update.message.reply_text(f"Profile update had an issue: {e}\nStill regenerating with current profile...")
+
+    await update.message.reply_text("Profile updated! Regenerating documents...")
+    await _process_job_listing(update.message, context, job)
+
+
 async def _process_job_listing(message, context: ContextTypes.DEFAULT_TYPE, job: JobListing):
-    """Generate resume + cover letter for a parsed job listing."""
+    """Generate resume + cover letter + fit summary + gap analysis for a parsed job listing."""
     profile = _get_profile()
 
     try:
-        # Step 1: Extract keywords
-        keywords = extract_keywords(job.description)
-        await message.reply_text(
-            f"ATS Keywords found: {', '.join(keywords.ats_keywords[:10])}\n"
-            f"Seniority: {keywords.seniority_level}"
-        )
+        # Single unified LLM call: resume + cover letter + fit + gaps + ATS
+        result = generate_application(profile, job.description)
+
+        keywords = result["keywords"]
+        resume = result["resume"]
+        cover_letter = result["cover_letter"]
 
         job_title = job.title or keywords.job_title
         company = job.company or keywords.company_name
 
-        # Step 2: Generate or reuse resume
-        cached_resume, cached_resume_path, cached_entry = find_cached_resume(keywords)
-        if cached_resume and cached_resume_path and os.path.exists(cached_resume_path):
-            resume = cached_resume
-            resume_path = cached_resume_path
-            old_job = cached_entry.get("job_title", "") if cached_entry else ""
-            old_co = cached_entry.get("company", "") if cached_entry else ""
-            await message.reply_text(
-                f"Reusing existing resume (ATS score: {resume.ats_score_estimate}/100)\n"
-                f"Previously generated for: {old_job} at {old_co}"
-            )
-        else:
-            resume = generate_resume(profile, job.description, keywords)
-            resume_path = render_resume_pdf(resume, profile.name)
-            save_resume_to_cache(keywords, resume, resume_path, job_title, company)
-            await message.reply_text(f"Resume generated! ATS match score: {resume.ats_score_estimate}/100")
+        await message.reply_text(
+            f"ATS Score: {resume.ats_score_estimate}/100\n"
+            f"Keywords matched: {', '.join(keywords.ats_keywords[:8])}"
+        )
 
-        # Step 3: Generate or adapt cover letter
-        cached_cl_text, cached_cl_entry = find_cached_cover_letter(keywords)
-        if cached_cl_text and cached_cl_entry:
-            old_co = cached_cl_entry.get("company", "")
-            old_title = cached_cl_entry.get("job_title", "")
-            cover_letter = adapt_cover_letter(cached_cl_text, company, job_title, old_co, old_title)
-            cl_path = render_cover_letter_pdf(cover_letter, profile.name)
-            await message.reply_text(
-                f"Adapted existing cover letter for {company}\n"
-                f"(Based on letter for: {old_title} at {old_co})"
-            )
-        else:
-            cover_letter = generate_cover_letter(profile, job.description, keywords)
-            cl_path = render_cover_letter_pdf(cover_letter, profile.name)
-            save_cover_letter_to_cache(keywords, cover_letter, cl_path, job_title, company)
-            await message.reply_text("Cover letter generated!")
+        # Render documents
+        resume_path = render_resume_pdf(resume, profile.name)
+        save_resume_to_cache(keywords, resume, resume_path, job_title, company)
 
-        # Step 5: Send files (each independently so one failure doesn't block the other)
+        cl_path = render_cover_letter_pdf(cover_letter, profile.name)
+        save_cover_letter_to_cache(keywords, cover_letter, cl_path, job_title, company)
+
+        # Send files
         resume_ext = os.path.splitext(resume_path)[1]
         cl_ext = os.path.splitext(cl_path)[1]
 
@@ -478,7 +534,25 @@ async def _process_job_listing(message, context: ContextTypes.DEFAULT_TYPE, job:
             logger.error(f"Error sending cover letter: {send_err}")
             await message.reply_text(f"Cover letter saved locally but failed to send: {send_err}")
 
-        # Step 6: Track application in dashboard
+        # Send fit summary
+        if result["fit_summary"]:
+            fit_lines = "\n".join(f"• {s}" for s in result["fit_summary"])
+            await message.reply_text(f"*Why you're a fit:*\n{fit_lines}", parse_mode="Markdown")
+
+        # Send gap analysis with fill-gaps prompt
+        if result["gap_analysis"]:
+            gap_lines = "\n".join(f"• {s}" for s in result["gap_analysis"])
+            await message.reply_text(
+                f"*Gaps to address:*\n{gap_lines}\n\n"
+                "Have experience that fills these gaps? Type it here and I'll update your profile "
+                "and regenerate your resume.\n"
+                "_Or type /skip to skip._",
+                parse_mode="Markdown",
+            )
+            context.user_data["awaiting_gap_fill"] = True
+            context.user_data["gap_fill_job"] = job
+
+        # Track application in dashboard
         from datetime import datetime
         app_record = Application(
             id=job.id or f"{company}_{job_title}".replace(" ", "_")[:20],
@@ -494,11 +568,13 @@ async def _process_job_listing(message, context: ContextTypes.DEFAULT_TYPE, job:
             cover_letter_path=os.path.abspath(cl_path),
             ats_score=resume.ats_score_estimate,
             description=job.description,
+            fit_summary=result["fit_summary"],
+            gap_analysis=result["gap_analysis"],
         )
         save_application(app_record)
         logger.info(f"Tracked application: {job_title} at {company}")
 
-        # Step 7: Offer referral search
+        # Offer referral search
         company = job.company or keywords.company_name
         if company:
             keyboard = InlineKeyboardMarkup([

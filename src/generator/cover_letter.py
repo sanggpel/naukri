@@ -20,43 +20,64 @@ def generate_cover_letter(
     linkedin_short = profile.linkedin_url.replace("https://", "").replace("http://", "").rstrip("/")
     contact_line = f"{profile.location} {profile.phone} {profile.email} {linkedin_short}"
 
-    prompt = f"""You are writing a cover letter for {profile.name}.
-Write in first person as {profile.name}. Be professional, warm, and specific.
+    prompt = f"""Write a cover letter for {profile.name} applying to {keywords.job_title} at {keywords.company_name}.
+Write in first person. Sound like a real person writing to another real person — not a template.
 
-CANDIDATE INFO:
+CANDIDATE:
 Name: {profile.name}
 Location: {profile.location}
 Contact: {profile.phone} | {profile.email} | {profile.linkedin_url}
 
-Summary: {profile.summary}
+Background: {profile.summary}
 
-Key Experience:
+Recent Experience:
 {experience_summary}
 
-Skills: {', '.join(profile.all_skills_flat()[:20])}
-
-TARGET JOB:
-Title: {keywords.job_title}
-Company: {keywords.company_name}
+Relevant Skills: {', '.join(profile.all_skills_flat()[:20])}
 
 JOB DESCRIPTION:
 {job_description[:3000]}
 
-KEY ATS KEYWORDS: {', '.join(keywords.ats_keywords[:15])}
+COVER LETTER RULES:
 
-INSTRUCTIONS:
-1. Start with "Dear Hiring Team,"
-2. Opening paragraph: Express excitement about the specific role and company. Mention what attracted you.
-3. Body paragraphs (2-3): Connect your experience to the role requirements. Reference specific achievements. Naturally incorporate ATS keywords.
-4. Closing paragraph: Express enthusiasm and invite discussion.
-5. End with:
-   Sincerely,
-   {profile.name}
-   {contact_line}
+OPENING (1 paragraph):
+- Start with "Dear Hiring Team,"
+- State what role you're applying for and why this specific company interests you.
+- Reference something SPECIFIC about the company or role from the job description — not generic
+  "I'm excited about your innovative company" but something like "The focus on AI-powered document
+  processing resonates with my recent work building..."
+- Keep it to 2-3 sentences. Do NOT say "I am writing to express my interest".
 
-TONE: Professional but warm, confident not arrogant, specific not generic.
-LENGTH: 4-5 paragraphs, roughly one page.
-DO NOT use bullet points — write in flowing paragraphs.
+BODY (2 paragraphs — each covering a DIFFERENT angle):
+- Paragraph 2: Your most relevant RECENT experience. Pick ONE concrete accomplishment from the
+  last 2-3 years that directly connects to what this role needs. Use a specific number or outcome.
+  Do NOT list your entire career history.
+- Paragraph 3: A DIFFERENT strength — could be leadership style, a technical skill that matches,
+  or domain knowledge. Do NOT repeat what paragraph 2 already covered.
+  Each body paragraph should be 3-4 sentences max.
+
+CLOSING (1 paragraph):
+- 1-2 sentences. Say you'd welcome a conversation. Do NOT grovel or over-explain.
+
+Sign off with:
+Sincerely,
+{profile.name}
+{contact_line}
+
+THINGS TO AVOID:
+- "I am passionate about..." / "I am excited to..." / "I am thrilled..."
+- "Throughout my career..." / "Over the past X years..." (the resume covers this)
+- Repeating the same achievement in different words across paragraphs
+- Listing skills like a resume — weave them into the story
+- Generic praise about the company that could apply to any company
+- Any sentence that could appear unchanged in a letter to a different company
+
+THINGS TO DO:
+- Each paragraph should add NEW information, not rephrase the previous one
+- Reference the company name and role naturally (1-2 times, not in every sentence)
+- Use specific details: team sizes, technologies, metrics, products
+- Keep the total letter to ~300 words (4 short paragraphs + sign-off)
+
 Return ONLY the cover letter text, no other commentary."""
 
     return get_llm_response(prompt, max_tokens=2048)

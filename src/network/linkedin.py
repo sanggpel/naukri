@@ -9,9 +9,7 @@ import requests
 
 from ..models import NetworkMatch
 from ..profile_loader import load_settings
-
-
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "network_cache.json")
+from ..tracker import get_network_cache, save_network_cache
 
 HEADERS = {
     "User-Agent": (
@@ -146,19 +144,6 @@ def _enrich_with_warm_paths(
                 break  # first match is enough
 
 
-def _load_cache() -> dict:
-    if os.path.exists(CACHE_PATH):
-        with open(CACHE_PATH, "r") as f:
-            return json.load(f)
-    return {}
-
-
-def _save_cache(cache: dict):
-    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
-    with open(CACHE_PATH, "w") as f:
-        json.dump(cache, f, indent=2)
-
-
 def _load_cookies() -> dict:
     """Load LinkedIn cookies from the JSON cookie file exported from browser."""
     settings = load_settings()
@@ -252,14 +237,11 @@ def find_connections_at_company(
 ) -> list[NetworkMatch]:
     """Find 1st and 2nd degree connections at a target company."""
     # Check cache first
-    cache = _load_cache()
     cache_key = f"company:{company_name.lower().strip()}"
-    if not force_refresh and cache_key in cache:
-        cached = cache[cache_key]
-        cached_time = datetime.fromisoformat(cached["timestamp"])
-        # Only use cache if it has results; always re-fetch if previous result was empty
-        if cached["matches"] and datetime.now() - cached_time < timedelta(hours=cache_ttl_hours):
-            return [NetworkMatch(**m) for m in cached["matches"]]
+    if not force_refresh:
+        cached_matches = get_network_cache(cache_key, ttl_hours=cache_ttl_hours)
+        if cached_matches:
+            return [NetworkMatch(**m) for m in cached_matches]
 
     try:
         cookies = _load_cookies()
@@ -294,11 +276,7 @@ def find_connections_at_company(
 
     # Cache results (only cache if no errors or we got results)
     if not errors or matches:
-        cache[cache_key] = {
-            "timestamp": datetime.now().isoformat(),
-            "matches": [m.model_dump() for m in matches],
-        }
-        _save_cache(cache)
+        save_network_cache(cache_key, [m.model_dump() for m in matches])
 
     return matches
 

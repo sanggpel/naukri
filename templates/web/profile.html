@@ -1,0 +1,577 @@
+{% extends "base.html" %}
+{% block title %}Profile — Job Tracker{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+    <h2 style="font-size:1.3rem;color:#1a1a2e;">My Profile</h2>
+    <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('rebuildSection').style.display=document.getElementById('rebuildSection').style.display==='none'?'block':'none'">Import / Rebuild</button>
+        {% if profile %}
+        <button type="button" class="btn btn-primary" id="editBtn" onclick="toggleEdit()">Edit Profile</button>
+        {% endif %}
+    </div>
+</div>
+
+{% if save_ok %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#e8f5e9;border-left:4px solid #2e7d32;border-radius:4px;">
+    <span style="color:#2e7d32;font-weight:600;">Profile saved successfully.</span>
+</div>
+{% endif %}
+{% if save_error %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#fce4ec;border-left:4px solid #c62828;border-radius:4px;">
+    <span style="color:#c62828;font-weight:600;">Error saving profile: {{ save_error }}</span>
+</div>
+{% endif %}
+
+{% if rebuild_error %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#fce4ec;border-left:4px solid #c62828;border-radius:4px;">
+    <span style="color:#c62828;font-weight:600;">Import failed: {{ rebuild_error }}</span>
+</div>
+{% endif %}
+
+<!-- ===== IMPORT / REBUILD SECTION ===== -->
+<div id="rebuildSection" style="display:none;margin-bottom:20px;">
+    <div class="card full-width" style="border:1px solid #e3f2fd;">
+        <h3 style="color:#1565c0;margin-bottom:4px;">Import / Rebuild Profile</h3>
+        <p style="color:#666;font-size:0.85rem;margin-bottom:16px;">
+            Create or rebuild your profile from a LinkedIn URL, resume PDF, or plain text.
+            This will <strong>replace</strong> your current profile.
+        </p>
+
+        <!-- Tab buttons -->
+        <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #eee;">
+            <button type="button" class="rebuild-tab active" onclick="showRebuildTab('linkedin')"
+                    style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:0.85rem;font-weight:600;color:#1565c0;border-bottom:2px solid #1565c0;margin-bottom:-2px;"
+                    id="tab-linkedin">LinkedIn URL</button>
+            <button type="button" class="rebuild-tab" onclick="showRebuildTab('pdf')"
+                    style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:0.85rem;font-weight:600;color:#888;border-bottom:2px solid transparent;margin-bottom:-2px;"
+                    id="tab-pdf">Resume PDF</button>
+            <button type="button" class="rebuild-tab" onclick="showRebuildTab('text')"
+                    style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:0.85rem;font-weight:600;color:#888;border-bottom:2px solid transparent;margin-bottom:-2px;"
+                    id="tab-text">Paste Text</button>
+        </div>
+
+        <!-- LinkedIn tab -->
+        <div id="rebuild-linkedin" class="rebuild-panel">
+            <form action="/profile/import" method="post" enctype="multipart/form-data"
+                  onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').textContent='Importing... this takes 30-60 seconds';">
+                <input type="hidden" name="source_type" value="linkedin">
+                <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px;">LinkedIn Profile URL</label>
+                <input type="url" name="linkedin_url" placeholder="https://www.linkedin.com/in/yourname"
+                       style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;margin-bottom:8px;" required>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:12px;">
+                    We'll fetch your public LinkedIn profile and use AI to build your profile.yaml.
+                </p>
+                <button type="submit" class="btn btn-primary">Import from LinkedIn</button>
+            </form>
+        </div>
+
+        <!-- PDF tab -->
+        <div id="rebuild-pdf" class="rebuild-panel" style="display:none;">
+            <form action="/profile/import" method="post" enctype="multipart/form-data"
+                  onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').textContent='Importing... this takes 30-60 seconds';">
+                <input type="hidden" name="source_type" value="pdf">
+                <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px;">Upload Resume (PDF or DOCX)</label>
+                <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt"
+                       style="margin-bottom:8px;font-size:0.85rem;" required>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:12px;">
+                    We'll extract text from your resume and use AI to build your profile.yaml.
+                </p>
+                <button type="submit" class="btn btn-primary">Import from Resume</button>
+            </form>
+        </div>
+
+        <!-- Text tab -->
+        <div id="rebuild-text" class="rebuild-panel" style="display:none;">
+            <form action="/profile/import" method="post" enctype="multipart/form-data"
+                  onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').textContent='Importing... this takes 30-60 seconds';">
+                <input type="hidden" name="source_type" value="text">
+                <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px;">Paste your resume or profile text</label>
+                <textarea name="profile_text" rows="12" placeholder="Paste your full resume text, LinkedIn About section, or any text describing your experience, skills, and education..."
+                          style="width:100%;font-size:0.85rem;line-height:1.5;padding:8px 10px;border:1px solid #ddd;border-radius:4px;" required></textarea>
+                <p style="font-size:0.8rem;color:#888;margin:8px 0 12px;">
+                    Paste as much detail as possible — work experience, skills, education, certifications, projects.
+                </p>
+                <button type="submit" class="btn btn-primary">Build Profile from Text</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if not profile %}
+<!-- No profile yet -->
+<div class="card full-width" style="text-align:center;padding:40px 20px;">
+    <div style="font-size:2rem;margin-bottom:12px;">&#128100;</div>
+    <h3 style="color:#1a1a2e;margin-bottom:8px;">No Profile Set Up Yet</h3>
+    <p style="color:#666;font-size:0.9rem;max-width:500px;margin:0 auto 16px;">
+        Your profile powers all resume and cover letter generation.<br>
+        Import it from LinkedIn, upload a resume PDF, or paste your details.
+    </p>
+    <button type="button" class="btn btn-primary" style="font-size:1rem;padding:10px 24px;"
+            onclick="document.getElementById('rebuildSection').style.display='block';window.scrollTo({top:0,behavior:'smooth'});">
+        Set Up Your Profile
+    </button>
+</div>
+{% else %}
+
+<!-- ===== VIEW MODE ===== -->
+<div id="viewMode">
+
+<!-- Contact Info -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Contact Information</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;">
+        <div><strong>Name:</strong> {{ profile.name }}</div>
+        <div><strong>Email:</strong> {{ profile.email }}</div>
+        <div><strong>Phone:</strong> {{ profile.phone }}</div>
+        <div><strong>Location:</strong> {{ profile.location }}</div>
+        <div><strong>Citizenship:</strong> {{ profile.citizenship or '—' }}</div>
+        <div><strong>LinkedIn:</strong> <a href="{{ profile.linkedin_url }}" target="_blank" style="color:#4fc3f7;">{{ profile.linkedin_url }}</a></div>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Professional Summary</h3>
+    <p style="font-size:0.9rem;line-height:1.7;color:#444;">{{ profile.summary }}</p>
+</div>
+
+<!-- Skills -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Skills</h3>
+    {% for category, skill_list in profile.skills.items() %}
+    <div style="margin-bottom:12px;">
+        <div style="font-weight:600;font-size:0.85rem;color:#1a1a2e;margin-bottom:4px;">{{ category.replace('_', ' ').title() }}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            {% for skill in skill_list %}
+            <span style="background:#e3f2fd;color:#1565c0;padding:3px 10px;border-radius:12px;font-size:0.8rem;">{{ skill }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Experience -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Experience</h3>
+    {% for exp in profile.experience %}
+    <div style="{% if not loop.last %}border-bottom:1px solid #f0f0f0;padding-bottom:16px;margin-bottom:16px;{% endif %}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;">
+            <div>
+                <span style="font-weight:600;font-size:1rem;">{{ exp.title }}</span>
+                <span style="color:#4fc3f7;font-weight:500;"> — {{ exp.company }}</span>
+            </div>
+            <div style="font-size:0.8rem;color:#888;">{{ exp.start }} – {{ exp.end }}</div>
+        </div>
+        <div style="font-size:0.8rem;color:#888;margin-bottom:6px;">
+            {% if exp.type %}{{ exp.type }}{% endif %}
+            {% if exp.location %} | {{ exp.location }}{% endif %}
+        </div>
+        {% if exp.bullets %}
+        <ul style="margin:0;padding-left:20px;font-size:0.88rem;color:#444;line-height:1.7;">
+            {% for bullet in exp.bullets %}
+            <li style="margin-bottom:4px;">{{ bullet }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Education -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Education</h3>
+    {% for edu in profile.education %}
+    <div style="{% if not loop.last %}margin-bottom:12px;{% endif %}">
+        <div style="font-weight:600;">{{ edu.degree }}{% if edu.field %} — {{ edu.field }}{% endif %}</div>
+        <div style="font-size:0.88rem;color:#666;">{{ edu.institution }}{% if edu.years %} ({{ edu.years }}){% endif %}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Certifications, Project Highlights, Languages -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+    <div class="card">
+        <h3>Certifications</h3>
+        {% if profile.certifications %}
+        <ul style="margin:0;padding-left:18px;font-size:0.88rem;color:#444;line-height:1.8;">
+            {% for cert in profile.certifications %}
+            <li>{{ cert }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}<p style="color:#999;font-size:0.88rem;">None listed.</p>{% endif %}
+    </div>
+    <div class="card">
+        <h3>Languages</h3>
+        {% if profile.languages %}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            {% for lang in profile.languages %}
+            <span style="background:#e3f2fd;color:#1565c0;padding:4px 14px;border-radius:12px;font-size:0.85rem;">{{ lang }}</span>
+            {% endfor %}
+        </div>
+        {% else %}<p style="color:#999;font-size:0.88rem;">None listed.</p>{% endif %}
+    </div>
+</div>
+
+{% if profile.project_highlights %}
+<div class="card" style="margin-bottom:20px;">
+    <h3>Project Highlights</h3>
+    <ul style="margin:0;padding-left:18px;font-size:0.88rem;color:#444;line-height:1.8;">
+        {% for ph in profile.project_highlights %}
+        <li>{{ ph }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+</div><!-- /viewMode -->
+
+<!-- ===== EDIT MODE ===== -->
+<div id="editMode" style="display:none;">
+<form method="post" action="/profile/save" id="profileForm">
+
+<!-- Contact Info -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Contact Information</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">Name</label>
+            <input type="text" name="name" value="{{ profile.name }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">Email</label>
+            <input type="email" name="email" value="{{ profile.email }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">Phone</label>
+            <input type="text" name="phone" value="{{ profile.phone }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">Location</label>
+            <input type="text" name="location" value="{{ profile.location }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">Citizenship</label>
+            <input type="text" name="citizenship" value="{{ profile.citizenship }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:4px;">LinkedIn URL</label>
+            <input type="url" name="linkedin_url" value="{{ profile.linkedin_url }}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;">
+        </div>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Professional Summary</h3>
+    <textarea name="summary" rows="5" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.9rem;resize:vertical;">{{ profile.summary }}</textarea>
+</div>
+
+<!-- Skills -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Skills</h3>
+    <div id="skillsContainer">
+        {% for category, skill_list in profile.skills.items() %}
+        {% set cat_index = loop.index0 %}
+        <div class="skill-category" style="margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:6px;" data-cat-index="{{ cat_index }}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <label style="font-size:0.8rem;font-weight:600;">Category:</label>
+                <input type="text" name="skill_category_{{ cat_index }}" value="{{ category }}" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                <button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest('.skill-category').remove()">Remove Category</button>
+            </div>
+            <div class="skill-items" data-cat="{{ cat_index }}">
+                {% for skill in skill_list %}
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" class="skill-item">
+                    <input type="text" name="skill_{{ cat_index }}[]" value="{{ skill }}" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                    <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>
+                </div>
+                {% endfor %}
+            </div>
+            <button type="button" class="btn btn-outline" style="font-size:0.75rem;padding:4px 10px;margin-top:4px;" onclick="addSkillItem(this, {{ loop.index0 }})">+ Add Skill</button>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline" style="font-size:0.8rem;margin-top:8px;" onclick="addSkillCategory()">+ Add Category</button>
+</div>
+
+<!-- Experience -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Experience</h3>
+    <div id="experienceContainer">
+        {% for exp in profile.experience %}
+        {% set exp_index = loop.index0 %}
+        <div class="exp-entry" style="padding:14px;background:#f8f9fa;border-radius:6px;margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong style="font-size:0.9rem;">Experience #{{ loop.index }}</strong>
+                <button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest('.exp-entry').remove()">Remove</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Title</label>
+                    <input type="text" name="exp_title[]" value="{{ exp.title }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Company</label>
+                    <input type="text" name="exp_company[]" value="{{ exp.company }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Type</label>
+                    <input type="text" name="exp_type[]" value="{{ exp.type }}" placeholder="Full-time, Self-employed..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Location</label>
+                    <input type="text" name="exp_location[]" value="{{ exp.location }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Start</label>
+                    <input type="text" name="exp_start[]" value="{{ exp.start }}" placeholder="YYYY-MM" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">End</label>
+                    <input type="text" name="exp_end[]" value="{{ exp.end }}" placeholder="YYYY-MM or present" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+            </div>
+            <div>
+                <label style="font-size:0.75rem;font-weight:600;">Bullets</label>
+                <div class="bullet-list" data-exp="{{ loop.index0 }}">
+                    {% for bullet in exp.bullets %}
+                    <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;" class="bullet-item">
+                        <textarea name="exp_bullet_{{ exp_index }}[]" rows="2" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;resize:vertical;">{{ bullet }}</textarea>
+                        <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;margin-top:4px;" onclick="this.parentElement.remove()">X</button>
+                    </div>
+                    {% endfor %}
+                </div>
+                <button type="button" class="btn btn-outline" style="font-size:0.72rem;padding:3px 8px;margin-top:4px;" onclick="addBullet(this, {{ loop.index0 }})">+ Add Bullet</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline" style="font-size:0.8rem;margin-top:4px;" onclick="addExperience()">+ Add Experience</button>
+</div>
+
+<!-- Education -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Education</h3>
+    <div id="educationContainer">
+        {% for edu in profile.education %}
+        <div class="edu-entry" style="padding:12px;background:#f8f9fa;border-radius:6px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <strong style="font-size:0.85rem;">Education #{{ loop.index }}</strong>
+                <button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest('.edu-entry').remove()">Remove</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Institution</label>
+                    <input type="text" name="edu_institution[]" value="{{ edu.institution }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Degree</label>
+                    <input type="text" name="edu_degree[]" value="{{ edu.degree }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Field</label>
+                    <input type="text" name="edu_field[]" value="{{ edu.field }}" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem;font-weight:600;">Years</label>
+                    <input type="text" name="edu_years[]" value="{{ edu.years }}" placeholder="YYYY-YYYY" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline" style="font-size:0.8rem;margin-top:4px;" onclick="addEducation()">+ Add Education</button>
+</div>
+
+<!-- Certifications, Languages, Project Highlights -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+    <div class="card">
+        <h3>Certifications</h3>
+        <div id="certsContainer">
+            {% for cert in profile.certifications %}
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" class="cert-item">
+                <input type="text" name="certification[]" value="{{ cert }}" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="btn btn-outline" style="font-size:0.75rem;padding:4px 10px;margin-top:4px;" onclick="addListItem('certsContainer','certification[]')">+ Add</button>
+    </div>
+    <div class="card">
+        <h3>Languages</h3>
+        <div id="langsContainer">
+            {% for lang in profile.languages %}
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" class="lang-item">
+                <input type="text" name="language[]" value="{{ lang }}" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+                <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="btn btn-outline" style="font-size:0.75rem;padding:4px 10px;margin-top:4px;" onclick="addListItem('langsContainer','language[]')">+ Add</button>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+    <h3>Project Highlights</h3>
+    <div id="phContainer">
+        {% for ph in profile.project_highlights %}
+        <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;" class="ph-item">
+            <textarea name="project_highlight[]" rows="2" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;resize:vertical;">{{ ph }}</textarea>
+            <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;margin-top:4px;" onclick="this.parentElement.remove()">X</button>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline" style="font-size:0.75rem;padding:4px 10px;margin-top:4px;" onclick="addTextareaItem('phContainer','project_highlight[]')">+ Add</button>
+</div>
+
+<!-- Hidden field to track experience count for bullet naming -->
+<input type="hidden" name="_exp_count" id="expCountField" value="{{ profile.experience|length }}">
+
+<div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:40px;">
+    <button type="button" class="btn btn-outline" onclick="toggleEdit()">Cancel</button>
+    <button type="submit" class="btn btn-primary" style="padding:8px 24px;">Save Profile</button>
+</div>
+
+</form>
+</div><!-- /editMode -->
+
+<script>
+function toggleEdit() {
+    var view = document.getElementById('viewMode');
+    var edit = document.getElementById('editMode');
+    var btn = document.getElementById('editBtn');
+    if (edit.style.display === 'none') {
+        view.style.display = 'none';
+        edit.style.display = 'block';
+        btn.textContent = 'View Profile';
+    } else {
+        view.style.display = 'block';
+        edit.style.display = 'none';
+        btn.textContent = 'Edit Profile';
+    }
+}
+
+var skillCatCounter = {{ profile.skills|length }};
+var expCounter = {{ profile.experience|length }};
+
+function addListItem(containerId, fieldName) {
+    var container = document.getElementById(containerId);
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;';
+    div.innerHTML = '<input type="text" name="' + fieldName + '" value="" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function addTextareaItem(containerId, fieldName) {
+    var container = document.getElementById(containerId);
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;';
+    div.innerHTML = '<textarea name="' + fieldName + '" rows="2" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;resize:vertical;"></textarea>' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;margin-top:4px;" onclick="this.parentElement.remove()">X</button>';
+    container.appendChild(div);
+    div.querySelector('textarea').focus();
+}
+
+function addSkillItem(btn, catIndex) {
+    var container = btn.previousElementSibling;
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;';
+    div.className = 'skill-item';
+    div.innerHTML = '<input type="text" name="skill_' + catIndex + '[]" value="" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function addSkillCategory() {
+    var container = document.getElementById('skillsContainer');
+    var idx = skillCatCounter++;
+    var div = document.createElement('div');
+    div.className = 'skill-category';
+    div.style.cssText = 'margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:6px;';
+    div.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+        '<label style="font-size:0.8rem;font-weight:600;">Category:</label>' +
+        '<input type="text" name="skill_category_' + idx + '" value="" placeholder="category_name" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest(\'.skill-category\').remove()">Remove Category</button>' +
+        '</div>' +
+        '<div class="skill-items" data-cat="' + idx + '"></div>' +
+        '<button type="button" class="btn btn-outline" style="font-size:0.75rem;padding:4px 10px;margin-top:4px;" onclick="addSkillItem(this, ' + idx + ')">+ Add Skill</button>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function addBullet(btn, expIndex) {
+    var container = btn.previousElementSibling;
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;';
+    div.className = 'bullet-item';
+    div.innerHTML = '<textarea name="exp_bullet_' + expIndex + '[]" rows="2" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;resize:vertical;"></textarea>' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;margin-top:4px;" onclick="this.parentElement.remove()">X</button>';
+    container.appendChild(div);
+    div.querySelector('textarea').focus();
+}
+
+function addExperience() {
+    var container = document.getElementById('experienceContainer');
+    var idx = expCounter++;
+    document.getElementById('expCountField').value = expCounter;
+    var div = document.createElement('div');
+    div.className = 'exp-entry';
+    div.style.cssText = 'padding:14px;background:#f8f9fa;border-radius:6px;margin-bottom:14px;';
+    div.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<strong style="font-size:0.9rem;">New Experience</strong>' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest(\'.exp-entry\').remove()">Remove</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Title</label><input type="text" name="exp_title[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Company</label><input type="text" name="exp_company[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Type</label><input type="text" name="exp_type[]" value="" placeholder="Full-time, Self-employed..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Location</label><input type="text" name="exp_location[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Start</label><input type="text" name="exp_start[]" value="" placeholder="YYYY-MM" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">End</label><input type="text" name="exp_end[]" value="" placeholder="YYYY-MM or present" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '</div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Bullets</label>' +
+        '<div class="bullet-list" data-exp="' + idx + '"></div>' +
+        '<button type="button" class="btn btn-outline" style="font-size:0.72rem;padding:3px 8px;margin-top:4px;" onclick="addBullet(this, ' + idx + ')">+ Add Bullet</button>' +
+        '</div>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function addEducation() {
+    var container = document.getElementById('educationContainer');
+    var div = document.createElement('div');
+    div.className = 'edu-entry';
+    div.style.cssText = 'padding:12px;background:#f8f9fa;border-radius:6px;margin-bottom:10px;';
+    div.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<strong style="font-size:0.85rem;">New Education</strong>' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.7rem;padding:4px 8px;" onclick="this.closest(\'.edu-entry\').remove()">Remove</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Institution</label><input type="text" name="edu_institution[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Degree</label><input type="text" name="edu_degree[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Field</label><input type="text" name="edu_field[]" value="" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '<div><label style="font-size:0.75rem;font-weight:600;">Years</label><input type="text" name="edu_years[]" value="" placeholder="YYYY-YYYY" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;"></div>' +
+        '</div>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function showRebuildTab(tab) {
+    document.querySelectorAll('.rebuild-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.rebuild-tab').forEach(t => {
+        t.style.color = '#888';
+        t.style.borderBottomColor = 'transparent';
+    });
+    document.getElementById('rebuild-' + tab).style.display = 'block';
+    var btn = document.getElementById('tab-' + tab);
+    btn.style.color = '#1565c0';
+    btn.style.borderBottomColor = '#1565c0';
+}
+</script>
+
+{% endif %}
+{% endblock %}

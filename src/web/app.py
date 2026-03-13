@@ -1,5 +1,6 @@
 """FastAPI web dashboard for tracking job applications."""
 
+import asyncio
 import os
 
 from fastapi import FastAPI, Form, Request
@@ -18,6 +19,7 @@ from ..tracker import (
     update_status,
 )
 from ..network.linkedin import find_connections_at_company
+from ..profile_loader import load_profile
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates", "web")
@@ -42,6 +44,9 @@ def create_app() -> FastAPI:
         scout_added: str = "",
     ):
         all_apps = load_applications()
+
+        # Check if profile exists
+        no_profile = not os.path.exists(os.path.join(BASE_DIR, "config", "profile.yaml"))
 
         # Build filter options from all data
         companies = sorted({a.company for a in all_apps if a.company})
@@ -81,6 +86,7 @@ def create_app() -> FastAPI:
             "sources": sources,
             "filters": {"q": q, "company": company, "source": source, "remote": remote},
             "scout_added": int(scout_added) if scout_added.isdigit() else None,
+            "no_profile": no_profile,
         })
 
     @app.get("/application/{app_id}", response_class=HTMLResponse)
@@ -122,58 +128,43 @@ def create_app() -> FastAPI:
 
     @app.post("/application/{app_id}/generate")
     async def generate_docs(app_id: str):
-        """Generate resume + cover letter for a tracked application."""
+        """Generate resume + cover letter + fit summary + gap analysis for a tracked application."""
         app_data = get_application(app_id)
         if not app_data or not app_data.description:
             return RedirectResponse(f"/application/{app_id}", status_code=302)
 
-        from ..generator.cache import (
-            adapt_cover_letter,
-            find_cached_cover_letter,
-            find_cached_resume,
-            save_cover_letter_to_cache,
-            save_resume_to_cache,
-        )
-        from ..generator.cover_letter import generate_cover_letter
-        from ..generator.keywords import extract_keywords
-        from ..generator.renderer import render_cover_letter_pdf, render_resume_pdf
-        from ..generator.resume import generate_resume
-        from ..profile_loader import load_profile
+        def _do_generate():
+            from ..generator.cache import save_cover_letter_to_cache, save_resume_to_cache
+            from ..generator.renderer import render_cover_letter_pdf, render_resume_pdf
+            from ..generator.unified import generate_application
+            from ..profile_loader import load_profile
 
-        profile = load_profile()
-        keywords = extract_keywords(app_data.description)
-        job_title = app_data.job_title or keywords.job_title
-        company = app_data.company or keywords.company_name
+            profile = load_profile()
+            result = generate_application(profile, app_data.description)
 
-        # Resume: reuse cached or generate new
-        cached_resume, cached_path, _ = find_cached_resume(keywords)
-        if cached_resume and cached_path and os.path.exists(cached_path):
-            resume = cached_resume
-            resume_path = cached_path
-        else:
-            resume = generate_resume(profile, app_data.description, keywords)
+            keywords = result["keywords"]
+            resume = result["resume"]
+            cover_letter = result["cover_letter"]
+
+            job_title = app_data.job_title or keywords.job_title
+            company = app_data.company or keywords.company_name
+
             resume_path = render_resume_pdf(resume, profile.name)
             save_resume_to_cache(keywords, resume, resume_path, job_title, company)
 
-        # Cover letter: reuse/adapt or generate new
-        cached_cl_text, cached_cl_entry = find_cached_cover_letter(keywords)
-        if cached_cl_text and cached_cl_entry:
-            old_co = cached_cl_entry.get("company", "")
-            old_title = cached_cl_entry.get("job_title", "")
-            cover_letter = adapt_cover_letter(cached_cl_text, company, job_title, old_co, old_title)
-            cl_path = render_cover_letter_pdf(cover_letter, profile.name)
-        else:
-            cover_letter = generate_cover_letter(profile, app_data.description, keywords)
             cl_path = render_cover_letter_pdf(cover_letter, profile.name)
             save_cover_letter_to_cache(keywords, cover_letter, cl_path, job_title, company)
 
-        # Update application record
-        app_data.resume_path = os.path.abspath(resume_path)
-        app_data.cover_letter_path = os.path.abspath(cl_path)
-        app_data.ats_score = resume.ats_score_estimate
-        if app_data.status == "discovered":
-            app_data.status = "generated"
-        save_application(app_data)
+            app_data.resume_path = os.path.abspath(resume_path)
+            app_data.cover_letter_path = os.path.abspath(cl_path)
+            app_data.ats_score = resume.ats_score_estimate
+            app_data.fit_summary = result["fit_summary"]
+            app_data.gap_analysis = result["gap_analysis"]
+            if app_data.status == "discovered":
+                app_data.status = "generated"
+            save_application(app_data)
+
+        await asyncio.to_thread(_do_generate)
 
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
@@ -183,7 +174,7 @@ def create_app() -> FastAPI:
         error_msg = None
         if app_data and app_data.company:
             try:
-                matches = find_connections_at_company(app_data.company)
+                matches = await asyncio.to_thread(find_connections_at_company, app_data.company)
                 update_referrals(app_id, matches)
                 if not matches:
                     error_msg = f"No connections found at {app_data.company} in your LinkedIn network."
@@ -202,6 +193,122 @@ def create_app() -> FastAPI:
             })
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
+    @app.post("/application/{app_id}/fetch-description")
+    async def fetch_desc(request: Request, app_id: str):
+        """Fetch job description from the job URL using smart scraping."""
+        app_data = get_application(app_id)
+        if not app_data or not app_data.url:
+            return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+        from ..discovery.fetcher import fetch_description
+
+        result = await asyncio.to_thread(fetch_description, app_data.url)
+
+        if result["description"]:
+            app_data.description = result["description"]
+            save_application(app_data)
+
+        if result["error"]:
+            # Re-render with error
+            statuses = ["discovered", "generated", "applied", "interviewing", "offered", "rejected", "not_relevant", "withdrawn"]
+            return templates.TemplateResponse("detail.html", {
+                "request": request,
+                "app": app_data,
+                "statuses": statuses,
+                "fetch_error": result["error"],
+                "fetch_method": result["method"],
+            })
+
+        return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+    @app.post("/application/{app_id}/save-description")
+    async def save_desc(app_id: str, description: str = Form(...)):
+        """Save a manually pasted job description."""
+        app_data = get_application(app_id)
+        if app_data:
+            app_data.description = description.strip()
+            save_application(app_data)
+        return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+    @app.post("/application/{app_id}/fill-gaps")
+    async def fill_gaps(app_id: str, additional_context: str = Form(...)):
+        """Update profile with additional context, then regenerate resume & cover letter."""
+        app_data = get_application(app_id)
+        if not app_data or not app_data.description or not additional_context.strip():
+            return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+        def _do_fill_gaps():
+            from ..generator.cache import save_cover_letter_to_cache, save_resume_to_cache
+            from ..generator.renderer import render_cover_letter_pdf, render_resume_pdf
+            from ..generator.unified import generate_application
+            from ..profile_loader import load_profile
+            from ..profile_updater import update_profile_from_context
+
+            # Step 1: Update profile.yaml with the additional context
+            update_profile_from_context(additional_context.strip(), app_data.gap_analysis)
+
+            # Step 2: Reload the updated profile
+            profile = load_profile()
+
+            # Step 3: Regenerate with enriched profile
+            result = generate_application(profile, app_data.description)
+
+            keywords = result["keywords"]
+            resume = result["resume"]
+            cover_letter = result["cover_letter"]
+
+            job_title = app_data.job_title or keywords.job_title
+            company = app_data.company or keywords.company_name
+
+            resume_path = render_resume_pdf(resume, profile.name)
+            save_resume_to_cache(keywords, resume, resume_path, job_title, company)
+
+            cl_path = render_cover_letter_pdf(cover_letter, profile.name)
+            save_cover_letter_to_cache(keywords, cover_letter, cl_path, job_title, company)
+
+            app_data.resume_path = os.path.abspath(resume_path)
+            app_data.cover_letter_path = os.path.abspath(cl_path)
+            app_data.ats_score = resume.ats_score_estimate
+            app_data.fit_summary = result["fit_summary"]
+            app_data.gap_analysis = result["gap_analysis"]
+            if app_data.status == "discovered":
+                app_data.status = "generated"
+            save_application(app_data)
+
+        await asyncio.to_thread(_do_fill_gaps)
+
+        return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+    @app.post("/add-job")
+    async def add_job(
+        job_title: str = Form(...),
+        company: str = Form(""),
+        url: str = Form(""),
+        location: str = Form(""),
+        description: str = Form(""),
+    ):
+        """Manually add a job to the tracker."""
+        import hashlib
+        from datetime import datetime
+
+        job_id = hashlib.md5(
+            f"{job_title}{company}{url}{datetime.now().isoformat()}".encode()
+        ).hexdigest()[:12]
+
+        app_record = Application(
+            id=job_id,
+            job_title=job_title.strip(),
+            company=company.strip(),
+            location=location.strip(),
+            url=url.strip(),
+            source="manual",
+            date_generated=datetime.now().isoformat(),
+            status="discovered",
+            description=description.strip(),
+        )
+        save_application(app_record)
+        return RedirectResponse(f"/application/{job_id}", status_code=302)
+
     @app.post("/scout")
     async def run_scout(request: Request):
         """Run the job scout and add new relevant jobs to the tracker."""
@@ -209,7 +316,7 @@ def create_app() -> FastAPI:
         from ..discovery.scout import scout_jobs
 
         try:
-            jobs = scout_jobs()
+            jobs = await asyncio.to_thread(scout_jobs)
         except Exception as e:
             # Re-render dashboard with error banner
             all_apps = load_applications()
@@ -251,6 +358,197 @@ def create_app() -> FastAPI:
             added += 1
 
         return RedirectResponse(f"/?status=discovered&scout_added={added}", status_code=302)
+
+    # ── Profile routes ──────────────────────────────────────────────
+
+    PROFILE_PATH = os.path.abspath(os.path.join(BASE_DIR, "config", "profile.yaml"))
+
+    @app.get("/profile", response_class=HTMLResponse)
+    async def profile_page(request: Request, saved: str = ""):
+        try:
+            profile = await asyncio.to_thread(load_profile, PROFILE_PATH)
+        except Exception:
+            profile = None  # No profile yet — show import section
+        return templates.TemplateResponse("profile.html", {
+            "request": request,
+            "profile": profile,
+            "save_ok": saved == "1",
+            "save_error": None,
+            "rebuild_error": None,
+        })
+
+    @app.post("/profile/save", response_class=HTMLResponse)
+    async def profile_save(request: Request):
+        import yaml
+
+        form = await request.form()
+
+        try:
+            # ── Basic fields ──
+            data: dict = {
+                "name": form.get("name", "").strip(),
+                "email": form.get("email", "").strip(),
+                "phone": form.get("phone", "").strip(),
+                "location": form.get("location", "").strip(),
+                "citizenship": form.get("citizenship", "").strip(),
+                "linkedin_url": form.get("linkedin_url", "").strip(),
+                "summary": form.get("summary", "").strip(),
+            }
+
+            # ── Skills (dynamic categories) ──
+            skills: dict[str, list[str]] = {}
+            cat_idx = 0
+            while True:
+                cat_key = f"skill_category_{cat_idx}"
+                if cat_key not in form:
+                    cat_idx += 1
+                    # check a few more in case indices are sparse (categories removed)
+                    if cat_idx > 100:
+                        break
+                    continue
+                cat_name = form[cat_key].strip()
+                if not cat_name:
+                    cat_idx += 1
+                    continue
+                skill_values = form.getlist(f"skill_{cat_idx}[]")
+                skills[cat_name] = [s.strip() for s in skill_values if s.strip()]
+                cat_idx += 1
+            data["skills"] = skills
+
+            # ── Experience ──
+            titles = form.getlist("exp_title[]")
+            companies = form.getlist("exp_company[]")
+            types = form.getlist("exp_type[]")
+            locations = form.getlist("exp_location[]")
+            starts = form.getlist("exp_start[]")
+            ends = form.getlist("exp_end[]")
+
+            experiences = []
+            for i in range(len(titles)):
+                if not titles[i].strip():
+                    continue
+                bullets_raw = form.getlist(f"exp_bullet_{i}[]")
+                bullets = [b.strip() for b in bullets_raw if b.strip()]
+                exp = {
+                    "title": titles[i].strip(),
+                    "company": companies[i].strip() if i < len(companies) else "",
+                    "type": types[i].strip() if i < len(types) else "",
+                    "start": starts[i].strip() if i < len(starts) else "",
+                    "end": ends[i].strip() if i < len(ends) else "",
+                    "location": locations[i].strip() if i < len(locations) else "",
+                    "bullets": bullets,
+                }
+                experiences.append(exp)
+            data["experience"] = experiences
+
+            # ── Education ──
+            institutions = form.getlist("edu_institution[]")
+            degrees = form.getlist("edu_degree[]")
+            fields = form.getlist("edu_field[]")
+            years = form.getlist("edu_years[]")
+
+            educations = []
+            for i in range(len(institutions)):
+                if not institutions[i].strip():
+                    continue
+                edu = {
+                    "institution": institutions[i].strip(),
+                    "degree": degrees[i].strip() if i < len(degrees) else "",
+                    "field": fields[i].strip() if i < len(fields) else "",
+                    "years": years[i].strip() if i < len(years) else "",
+                }
+                educations.append(edu)
+            data["education"] = educations
+
+            # ── Simple lists ──
+            data["certifications"] = [c.strip() for c in form.getlist("certification[]") if c.strip()]
+            data["languages"] = [l.strip() for l in form.getlist("language[]") if l.strip()]
+            data["project_highlights"] = [p.strip() for p in form.getlist("project_highlight[]") if p.strip()]
+
+            # ── Write YAML ──
+            def _write():
+                with open(PROFILE_PATH, "w") as f:
+                    yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+            await asyncio.to_thread(_write)
+
+            return RedirectResponse("/profile?saved=1", status_code=302)
+
+        except Exception as exc:
+            # On error, reload profile and show error
+            profile = await asyncio.to_thread(load_profile, PROFILE_PATH)
+            return templates.TemplateResponse("profile.html", {
+                "request": request,
+                "profile": profile,
+                "save_ok": False,
+                "save_error": str(exc),
+            })
+
+    @app.post("/profile/import", response_class=HTMLResponse)
+    async def profile_import(request: Request):
+        """Import profile from LinkedIn URL, resume PDF, or plain text."""
+        from ..profile_builder import (
+            build_profile_from_text,
+            extract_text_from_docx,
+            extract_text_from_pdf,
+            fetch_linkedin_profile_text,
+            save_profile,
+        )
+
+        form = await request.form()
+        source_type = form.get("source_type", "")
+
+        try:
+            if source_type == "linkedin":
+                url = form.get("linkedin_url", "").strip()
+                if not url:
+                    raise ValueError("Please provide a LinkedIn URL")
+                text = await asyncio.to_thread(fetch_linkedin_profile_text, url)
+                # Preserve the LinkedIn URL in the output
+                profile_data = await asyncio.to_thread(build_profile_from_text, text)
+                if not profile_data.get("linkedin_url"):
+                    profile_data["linkedin_url"] = url
+
+            elif source_type == "pdf":
+                upload = form.get("resume_file")
+                if not upload or not upload.filename:
+                    raise ValueError("Please upload a file")
+                file_bytes = await upload.read()
+                filename = upload.filename.lower()
+                if filename.endswith(".pdf"):
+                    text = await asyncio.to_thread(extract_text_from_pdf, file_bytes)
+                elif filename.endswith((".docx", ".doc")):
+                    text = await asyncio.to_thread(extract_text_from_docx, file_bytes)
+                elif filename.endswith(".txt"):
+                    text = file_bytes.decode("utf-8", errors="replace")
+                else:
+                    raise ValueError(f"Unsupported file type: {upload.filename}")
+                profile_data = await asyncio.to_thread(build_profile_from_text, text)
+
+            elif source_type == "text":
+                text = form.get("profile_text", "").strip()
+                if not text or len(text) < 50:
+                    raise ValueError("Please paste more text (at least 50 characters)")
+                profile_data = await asyncio.to_thread(build_profile_from_text, text)
+
+            else:
+                raise ValueError(f"Unknown source type: {source_type}")
+
+            await asyncio.to_thread(save_profile, profile_data)
+            return RedirectResponse("/profile?saved=1", status_code=302)
+
+        except Exception as exc:
+            try:
+                profile = await asyncio.to_thread(load_profile, PROFILE_PATH)
+            except Exception:
+                profile = None
+            return templates.TemplateResponse("profile.html", {
+                "request": request,
+                "profile": profile,
+                "save_ok": False,
+                "save_error": None,
+                "rebuild_error": str(exc),
+            })
 
     @app.get("/view/{filename:path}")
     async def view_file(filename: str):
