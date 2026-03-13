@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Settings — Meri Naukri{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+    <h2 style="font-size:1.3rem;color:#1a1a2e;">Opportunity Preferences</h2>
+</div>
+
+{% if save_ok %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#e8f5e9;border-left:4px solid #2e7d32;border-radius:4px;">
+    <span style="color:#2e7d32;font-weight:600;">Settings saved successfully.</span>
+</div>
+{% endif %}
+{% if save_error %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#fce4ec;border-left:4px solid #c62828;border-radius:4px;">
+    <span style="color:#c62828;font-weight:600;">Error saving settings: {{ save_error }}</span>
+</div>
+{% endif %}
+
+<form method="POST" action="/settings/save">
+
+<!-- Search Queries -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Job Search Queries</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:12px;">Job titles the scout will search for on job boards.</p>
+    <div id="queriesContainer">
+        {% for query in settings.scout.get('queries', []) %}
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" class="query-item">
+            <input type="text" name="query[]" value="{{ query }}" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+            <button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline" style="font-size:0.8rem;margin-top:6px;" onclick="addQuery()">+ Add Query</button>
+</div>
+
+<!-- Location & Sources -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Location & Sources</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Search Location</label>
+            <input type="text" name="location" value="{{ settings.scout.get('location', settings.discovery.get('default_location', '')) }}" placeholder="e.g. Canada, Calgary AB" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Country</label>
+            <input type="text" name="country" value="{{ settings.scout.get('country', settings.discovery.get('default_country', '')) }}" placeholder="e.g. Canada, USA" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Default Location (Discovery)</label>
+            <input type="text" name="default_location" value="{{ settings.discovery.get('default_location', '') }}" placeholder="e.g. Calgary, AB, Canada" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Default Country (Discovery)</label>
+            <input type="text" name="default_country" value="{{ settings.discovery.get('default_country', '') }}" placeholder="e.g. Canada" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+    </div>
+
+    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:8px;">Job Board Sources</label>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        {% set active_sources = settings.scout.get('sources', []) %}
+        {% for src in ['indeed', 'linkedin', 'glassdoor'] %}
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;">
+            <input type="checkbox" name="source[]" value="{{ src }}" {% if src in active_sources %}checked{% endif %}>
+            {{ src|capitalize }}
+        </label>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Scout Settings -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Scout Settings</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px;">
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Max Results Per Query</label>
+            <input type="number" name="max_per_query" value="{{ settings.scout.get('max_per_query', 50) }}" min="5" max="200" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Lookback (hours)</label>
+            <input type="number" name="hours_old" value="{{ settings.scout.get('hours_old', 336) }}" min="24" max="2160" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+            <span style="font-size:0.7rem;color:#888;">336 = 2 weeks</span>
+        </div>
+        <div>
+            <label style="font-size:0.8rem;font-weight:600;">Scout Interval (hours)</label>
+            <input type="number" name="interval_hours" value="{{ settings.scout.get('interval_hours', 6) }}" min="1" max="72" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+        </div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;">
+            <input type="checkbox" name="remote_only" value="true" {% if settings.scout.get('remote_only', False) %}checked{% endif %}>
+            Remote Only
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;">
+            <input type="checkbox" name="ai_filter" value="true" {% if settings.scout.get('ai_filter', True) %}checked{% endif %}>
+            AI Relevance Filter
+        </label>
+    </div>
+</div>
+
+<!-- Target Roles -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Target Roles (AI Filter)</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:8px;">Describe the kind of roles you're targeting. The AI filter uses this to decide which jobs to keep.</p>
+    <textarea name="target_roles" rows="5" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;resize:vertical;">{{ settings.scout.get('target_roles', '') }}</textarea>
+</div>
+
+<!-- Title Exclude -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Title Exclude Keywords</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:8px;">Jobs with these keywords in the title are automatically skipped (fast filter, runs before AI).</p>
+    <div id="excludeContainer">
+        {% for kw in settings.scout.get('title_exclude', []) %}
+        <div style="display:inline-flex;align-items:center;gap:4px;margin:3px 4px;padding:4px 10px;background:#f0f0f0;border-radius:16px;font-size:0.8rem;" class="exclude-tag">
+            <input type="text" name="title_exclude[]" value="{{ kw }}" style="border:none;background:transparent;font-size:0.8rem;width:auto;padding:0;min-width:60px;" onfocus="this.style.background='#fff';this.style.borderRadius='4px';this.style.padding='2px 4px'" onblur="this.style.background='transparent';this.style.padding='0'">
+            <button type="button" style="border:none;background:none;color:#c62828;cursor:pointer;font-size:0.8rem;padding:0 2px;" onclick="this.parentElement.remove()">x</button>
+        </div>
+        {% endfor %}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+        <input type="text" id="newExclude" placeholder="Add keyword..." style="flex:1;max-width:250px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;" onkeydown="if(event.key==='Enter'){event.preventDefault();addExclude();}">
+        <button type="button" class="btn btn-outline" style="font-size:0.8rem;" onclick="addExclude()">+ Add</button>
+    </div>
+</div>
+
+<!-- Save Button -->
+<div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:30px;">
+    <a href="/settings" class="btn btn-outline">Cancel</a>
+    <button type="submit" class="btn btn-primary" style="padding:10px 28px;font-size:0.95rem;">Save Settings</button>
+</div>
+
+</form>
+
+<script>
+function addQuery() {
+    const container = document.getElementById('queriesContainer');
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    div.className = 'query-item';
+    div.innerHTML = '<input type="text" name="query[]" value="" placeholder="e.g. Engineering Manager" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">' +
+        '<button type="button" class="btn btn-danger" style="font-size:0.65rem;padding:3px 6px;" onclick="this.parentElement.remove()">X</button>';
+    container.appendChild(div);
+    div.querySelector('input').focus();
+}
+
+function addExclude() {
+    const input = document.getElementById('newExclude');
+    const val = input.value.trim();
+    if (!val) return;
+    const container = document.getElementById('excludeContainer');
+    const tag = document.createElement('div');
+    tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin:3px 4px;padding:4px 10px;background:#f0f0f0;border-radius:16px;font-size:0.8rem;';
+    tag.className = 'exclude-tag';
+    tag.innerHTML = '<input type="text" name="title_exclude[]" value="' + val.replace(/"/g, '&quot;') + '" style="border:none;background:transparent;font-size:0.8rem;width:auto;padding:0;min-width:60px;">' +
+        '<button type="button" style="border:none;background:none;color:#c62828;cursor:pointer;font-size:0.8rem;padding:0 2px;" onclick="this.parentElement.remove()">x</button>';
+    container.appendChild(tag);
+    input.value = '';
+    input.focus();
+}
+</script>
+
+{% endblock %}

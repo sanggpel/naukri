@@ -550,6 +550,91 @@ def create_app() -> FastAPI:
                 "rebuild_error": str(exc),
             })
 
+    # ── Settings routes ─────────────────────────────────────────────
+
+    SETTINGS_PATH = os.path.abspath(os.path.join(BASE_DIR, "config", "settings.yaml"))
+
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request, saved: str = ""):
+        import yaml
+        def _load():
+            with open(SETTINGS_PATH, "r") as f:
+                return yaml.safe_load(f)
+        try:
+            settings = await asyncio.to_thread(_load)
+        except Exception:
+            settings = {"scout": {}, "discovery": {}}
+        # Ensure expected sections exist
+        settings.setdefault("scout", {})
+        settings.setdefault("discovery", {})
+        return templates.TemplateResponse("settings.html", {
+            "request": request,
+            "settings": settings,
+            "save_ok": saved == "1",
+            "save_error": None,
+        })
+
+    @app.post("/settings/save", response_class=HTMLResponse)
+    async def settings_save(request: Request):
+        import yaml
+
+        form = await request.form()
+
+        try:
+            # Load existing settings to preserve non-UI fields (llm, telegram, linkedin, output)
+            def _load():
+                with open(SETTINGS_PATH, "r") as f:
+                    return yaml.safe_load(f) or {}
+            settings = await asyncio.to_thread(_load)
+
+            # ── Discovery ──
+            settings.setdefault("discovery", {})
+            settings["discovery"]["default_location"] = form.get("default_location", "").strip()
+            settings["discovery"]["default_country"] = form.get("default_country", "").strip()
+
+            # ── Scout ──
+            settings.setdefault("scout", {})
+            queries = [q.strip() for q in form.getlist("query[]") if q.strip()]
+            settings["scout"]["queries"] = queries
+            settings["scout"]["location"] = form.get("location", "").strip()
+            settings["scout"]["country"] = form.get("country", "").strip()
+            settings["scout"]["sources"] = form.getlist("source[]")
+            settings["scout"]["max_per_query"] = int(form.get("max_per_query", 50))
+            settings["scout"]["hours_old"] = int(form.get("hours_old", 336))
+            settings["scout"]["interval_hours"] = int(form.get("interval_hours", 6))
+            settings["scout"]["remote_only"] = form.get("remote_only") == "true"
+            settings["scout"]["ai_filter"] = form.get("ai_filter") == "true"
+            settings["scout"]["target_roles"] = form.get("target_roles", "").strip()
+
+            # Title exclude keywords
+            title_exclude = [kw.strip() for kw in form.getlist("title_exclude[]") if kw.strip()]
+            settings["scout"]["title_exclude"] = title_exclude
+
+            def _write():
+                with open(SETTINGS_PATH, "w") as f:
+                    yaml.dump(settings, f, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
+
+            await asyncio.to_thread(_write)
+            return RedirectResponse("/settings?saved=1", status_code=302)
+
+        except Exception as exc:
+            import yaml
+            try:
+                def _reload():
+                    with open(SETTINGS_PATH, "r") as f:
+                        return yaml.safe_load(f) or {}
+                settings = await asyncio.to_thread(_reload)
+            except Exception:
+                settings = {"scout": {}, "discovery": {}}
+            settings.setdefault("scout", {})
+            settings.setdefault("discovery", {})
+            return templates.TemplateResponse("settings.html", {
+                "request": request,
+                "settings": settings,
+                "save_ok": False,
+                "save_error": str(exc),
+            })
+
     @app.get("/view/{filename:path}")
     async def view_file(filename: str):
         """Extract and return formatted HTML content from a DOCX or text file."""
