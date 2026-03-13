@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
         })
 
     @app.get("/application/{app_id}", response_class=HTMLResponse)
-    async def detail(request: Request, app_id: str):
+    async def detail(request: Request, app_id: str, error: str = ""):
         app_data = get_application(app_id)
         if not app_data:
             return RedirectResponse("/", status_code=302)
@@ -100,6 +100,7 @@ def create_app() -> FastAPI:
             "request": request,
             "app": app_data,
             "statuses": statuses,
+            "error": error,
         })
 
     @app.post("/application/{app_id}/status")
@@ -164,7 +165,14 @@ def create_app() -> FastAPI:
                 app_data.status = "generated"
             save_application(app_data)
 
-        await asyncio.to_thread(_do_generate)
+        try:
+            await asyncio.to_thread(_do_generate)
+        except Exception as exc:
+            import logging
+            import urllib.parse
+            logging.getLogger(__name__).error("Generation failed for %s: %s", app_id, exc)
+            error_msg = urllib.parse.quote(str(exc)[:300])
+            return RedirectResponse(f"/application/{app_id}?error={error_msg}", status_code=302)
 
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
@@ -275,7 +283,14 @@ def create_app() -> FastAPI:
                 app_data.status = "generated"
             save_application(app_data)
 
-        await asyncio.to_thread(_do_fill_gaps)
+        try:
+            await asyncio.to_thread(_do_fill_gaps)
+        except Exception as exc:
+            import logging
+            import urllib.parse
+            logging.getLogger(__name__).error("Fill-gaps failed for %s: %s", app_id, exc)
+            error_msg = urllib.parse.quote(str(exc)[:300])
+            return RedirectResponse(f"/application/{app_id}?error={error_msg}", status_code=302)
 
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
@@ -742,31 +757,48 @@ def create_app() -> FastAPI:
             return HTMLResponse("File not found", status_code=404)
         return FileResponse(path, filename=os.path.basename(path))
 
-    @app.get("/pdf/{filename:path}")
-    async def download_as_pdf(filename: str):
-        """Serve file as PDF — converts DOCX to PDF on the fly if needed."""
+    def _resolve_pdf_path(filename: str) -> str | None:
+        """Resolve filename to an absolute PDF path, converting DOCX if needed."""
         if os.path.isabs(filename) and os.path.exists(filename):
             path = filename
         else:
             path = os.path.abspath(os.path.join(BASE_DIR, filename))
 
         if not os.path.exists(path):
-            return HTMLResponse("File not found", status_code=404)
+            return None
 
-        # Already a PDF — serve directly
         if path.endswith(".pdf"):
-            stem = os.path.splitext(os.path.basename(path))[0]
-            return FileResponse(path, filename=f"{stem}.pdf", media_type="application/pdf")
+            return path
 
-        # Convert DOCX → PDF via WeasyPrint (renders through HTML intermediate)
         if path.endswith(".docx"):
             pdf_path = path.replace(".docx", ".pdf")
             if not os.path.exists(pdf_path):
                 pdf_path = _docx_to_pdf(path)
-            stem = os.path.splitext(os.path.basename(path))[0]
-            return FileResponse(pdf_path, filename=f"{stem}.pdf", media_type="application/pdf")
+            return pdf_path
 
-        return HTMLResponse("Cannot convert this file type to PDF", status_code=415)
+        return None
+
+    @app.get("/pdf/{filename:path}")
+    async def download_as_pdf(filename: str):
+        """Serve file as PDF download — converts DOCX to PDF on the fly if needed."""
+        path = _resolve_pdf_path(filename)
+        if not path:
+            return HTMLResponse("File not found", status_code=404)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        return FileResponse(path, filename=f"{stem}.pdf", media_type="application/pdf")
+
+    @app.get("/pdf-view/{filename:path}")
+    async def view_pdf_inline(filename: str):
+        """Serve PDF inline for iframe embedding (no Content-Disposition attachment)."""
+        from starlette.responses import Response
+        path = _resolve_pdf_path(filename)
+        if not path:
+            return HTMLResponse("File not found", status_code=404)
+        with open(path, "rb") as f:
+            content = f.read()
+        return Response(content, media_type="application/pdf", headers={
+            "Content-Disposition": "inline",
+        })
 
     def _docx_to_pdf(docx_path: str) -> str:
         """Convert a DOCX file to PDF using WeasyPrint via an HTML intermediate."""

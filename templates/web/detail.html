@@ -4,6 +4,12 @@
 {% block content %}
 <a href="/" class="back-link">&larr; Back to Dashboard</a>
 
+{% if error %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#fce4ec;border-left:4px solid #c62828;border-radius:4px;">
+    <strong style="color:#c62828;">Error:</strong> <span style="color:#c62828;">{{ error }}</span>
+</div>
+{% endif %}
+
 <div class="detail-header">
     <h2>{{ app.job_title }}</h2>
     <div class="company">{{ app.company }}</div>
@@ -252,6 +258,16 @@ function viewDoc(title, url) {
     document.getElementById('docModalTitle').textContent = title;
     document.getElementById('docModalBody').innerHTML = '<div style="text-align:center;color:#888;padding:40px;">Loading...</div>';
     document.getElementById('docModal').classList.add('active');
+
+    // For PDFs, embed inline instead of going through /view/ JSON endpoint
+    var pdfViewPath = url.replace('/view/', '/pdf-view/');
+    if (pdfViewPath.endsWith('.pdf')) {
+        document.getElementById('docModalBody').innerHTML =
+            '<iframe src="' + pdfViewPath + '" style="width:100%;height:70vh;border:none;border-radius:4px;"></iframe>';
+        document.getElementById('docPlainText').textContent = '(PDF — use Download button to copy)';
+        return;
+    }
+
     fetch(url)
         .then(r => r.json())
         .then(data => {
