@@ -8,7 +8,7 @@ Split into three focused LLM calls to ensure complete, high-quality output:
 
 import logging
 
-from ..llm_client import get_llm_response, parse_json_response
+from ..llm_client import GROQ_MODELS, get_llm_response, get_models_used, parse_json_response, reset_models_used
 from ..models import ExtractedKeywords, GeneratedResume, ResumeSection, UserProfile
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,8 @@ def _build_profile_text(profile: UserProfile) -> tuple[str, str, str]:
 
 
 def _call_1_analysis_and_resume_structure(
-    profile: UserProfile, job_description: str, experience_text: str, skills_text: str
+    profile: UserProfile, job_description: str, experience_text: str, skills_text: str,
+    model_override: str | None = None,
 ) -> dict:
     """Call 1: Job analysis, ATS score, and resume structure (everything except experience bullets)."""
 
@@ -112,14 +113,16 @@ RULES:
 - certifications: Include ALL certifications. List the most JD-relevant ones first.
 - project_highlights: Pick the 3-5 most relevant to this JD. Reword to emphasize JD-relevant aspects.
 - Do NOT invent skills or certifications the candidate doesn't have.
-- Return ONLY valid JSON."""
 
-    text = get_llm_response(prompt, max_tokens=4000)
+CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown. No headers. START with {{ and END with }}."""
+
+    text = get_llm_response(prompt, max_tokens=4000, model_override=model_override)
     return parse_json_response(text)
 
 
 def _call_2_experience(
-    profile: UserProfile, job_description: str, experience_text: str, ats_keywords: list[str]
+    profile: UserProfile, job_description: str, experience_text: str, ats_keywords: list[str],
+    model_override: str | None = None,
 ) -> list[dict]:
     """Call 2: Generate tailored experience bullets for ALL roles."""
 
@@ -171,16 +174,17 @@ Return JSON:
 }}
 
 You MUST return exactly {num_exp} experience entries. Do NOT skip any role.
-Return ONLY valid JSON."""
 
-    text = get_llm_response(prompt, max_tokens=6000)
+CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown. No headers. START with {{ and END with }}."""
+
+    text = get_llm_response(prompt, max_tokens=6000, model_override=model_override)
     data = parse_json_response(text)
     return data.get("experience", [])
 
 
 def _call_3_cover_letter(
     profile: UserProfile, job_description: str, job_title: str, company_name: str,
-    experience_text: str, contact_line: str
+    experience_text: str, contact_line: str, model_override: str | None = None,
 ) -> dict:
     """Call 3: Cover letter + Fit summary + Gap analysis."""
 
@@ -250,22 +254,24 @@ Honest gaps between candidate and JD requirements. For each:
 - What's missing
 - How to address it (transferable skill, adjacent experience, or honest acknowledgment)
 
-Return JSON:
+CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown. No headers. No explanation.
+The JSON format:
 {{
   "cover_letter": "Full text with \\n\\n between paragraphs and \\n for line breaks in sign-off.",
   "fit_summary": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
   "gap_analysis": ["gap 1", "gap 2", "gap 3"]
 }}
 
-Return ONLY valid JSON. No markdown."""
+START your response with {{ and END with }}. Nothing else."""
 
-    text = get_llm_response(prompt, max_tokens=4000)
+    text = get_llm_response(prompt, max_tokens=6000, model_override=model_override)
     return parse_json_response(text)
 
 
 def _optimize_cached_resume(
     cached_resume: GeneratedResume, keywords: ExtractedKeywords,
     job_description: str, ats_keywords: list[str],
+    model_override: str | None = None,
 ) -> tuple[GeneratedResume, dict]:
     """Lightweight LLM call to patch a cached resume — only fix what's missing for the new JD.
 
@@ -329,9 +335,10 @@ RULES:
 - For experience_updates, include ALL bullets for that role (not just changed ones) since they replace the existing bullets.
 - core_competencies should be the FULL updated set (3-5 categories, merge missing keywords into appropriate categories).
 - Do NOT invent skills or achievements not in the original resume.
-- Return ONLY valid JSON."""
 
-    text = get_llm_response(prompt, max_tokens=4000)
+CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown. No headers. START with {{ and END with }}."""
+
+    text = get_llm_response(prompt, max_tokens=4000, model_override=model_override)
     updates = parse_json_response(text)
 
     # Apply updates to cached resume
@@ -367,6 +374,7 @@ RULES:
 def generate_application(
     profile: UserProfile,
     job_description: str,
+    model_override: str | None = None,
 ) -> dict:
     """Generate application materials. Uses cache when a strong match exists (saves 2 LLM calls).
 
@@ -391,12 +399,14 @@ def generate_application(
 
     from .cache import find_cached_resume
 
+    reset_models_used()  # Track which models are used in this generation cycle
+
     experience_text, skills_text, contact_line = _build_profile_text(profile)
 
     # ── Call 1: Job Analysis + ATS + Resume Structure (always needed) ──
     logger.info("Call 1: Analyzing job and building resume structure...")
     structure = _call_1_analysis_and_resume_structure(
-        profile, job_description, experience_text, skills_text
+        profile, job_description, experience_text, skills_text, model_override=model_override
     )
 
     # Parse job analysis
@@ -425,13 +435,15 @@ def generate_application(
         logger.info("Cache hit! Optimizing existing resume instead of full rebuild (saves 1-2 LLM calls)...")
         resume, ats_data = _optimize_cached_resume(
             cached_resume, keywords, job_description, ats_keywords,
+            model_override=model_override,
         )
         overall_score = ats_data.get("overall", overall_score)
     else:
         # No cache match — full generation (Call 2 + build from Call 1 structure)
         logger.info("No cache match. Full generation: experience bullets for all %d roles...", len(profile.experience))
         experience_entries = _call_2_experience(
-            profile, job_description, experience_text, ats_keywords
+            profile, job_description, experience_text, ats_keywords,
+            model_override=model_override,
         )
 
         # Validate: fill missing entries from profile
@@ -474,7 +486,7 @@ def generate_application(
     logger.info("Generating cover letter and analysis...")
     cl_data = _call_3_cover_letter(
         profile, job_description, job_title, company_name,
-        experience_text, contact_line,
+        experience_text, contact_line, model_override=model_override,
     )
 
     cover_letter = cl_data.get("cover_letter", "")
@@ -487,9 +499,16 @@ def generate_application(
     if isinstance(gap_analysis, str):
         gap_analysis = [s.strip() for s in gap_analysis.split("\n") if s.strip()]
 
-    logger.info("Done. Resume: %d experience entries, CL: %d chars, Cache: %s",
+    # Build model usage summary for the UI
+    models_used = get_models_used()
+    model_names_used = list(dict.fromkeys(  # deduplicate, preserve order
+        GROQ_MODELS.get(m, {}).get("name", m) for m in models_used
+    ))
+
+    logger.info("Done. Resume: %d experience entries, CL: %d chars, Cache: %s, Models: %s",
                 len(resume.sections.experience), len(cover_letter),
-                "optimized" if cached_resume else "full build")
+                "optimized" if cached_resume else "full build",
+                ", ".join(model_names_used) or "unknown")
 
     return {
         "keywords": keywords,
@@ -498,4 +517,5 @@ def generate_application(
         "fit_summary": fit_summary,
         "gap_analysis": gap_analysis,
         "ats_breakdown": ats_data,
+        "models_used": model_names_used,
     }

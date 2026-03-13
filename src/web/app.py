@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
         })
 
     @app.get("/application/{app_id}", response_class=HTMLResponse)
-    async def detail(request: Request, app_id: str, error: str = ""):
+    async def detail(request: Request, app_id: str, error: str = "", models_used: str = ""):
         app_data = get_application(app_id)
         if not app_data:
             return RedirectResponse("/", status_code=302)
@@ -101,6 +101,7 @@ def create_app() -> FastAPI:
             "app": app_data,
             "statuses": statuses,
             "error": error,
+            "models_used": models_used,
         })
 
     @app.post("/application/{app_id}/status")
@@ -128,11 +129,15 @@ def create_app() -> FastAPI:
         return RedirectResponse("/", status_code=302)
 
     @app.post("/application/{app_id}/generate")
-    async def generate_docs(app_id: str):
+    async def generate_docs(app_id: str, request: Request):
         """Generate resume + cover letter + fit summary + gap analysis for a tracked application."""
+        from ..llm_client import GroqRateLimitError
+
         app_data = get_application(app_id)
         if not app_data or not app_data.description:
             return RedirectResponse(f"/application/{app_id}", status_code=302)
+
+        gen_info = {}  # mutable container to pass info out of the thread
 
         def _do_generate():
             from ..generator.cache import save_cover_letter_to_cache, save_resume_to_cache
@@ -165,8 +170,16 @@ def create_app() -> FastAPI:
                 app_data.status = "generated"
             save_application(app_data)
 
+            gen_info["models_used"] = result.get("models_used", [])
+
         try:
             await asyncio.to_thread(_do_generate)
+        except GroqRateLimitError as exc:
+            import logging
+            import urllib.parse
+            logging.getLogger(__name__).warning("Rate limit for %s: %s", app_id, exc)
+            error_msg = urllib.parse.quote("Groq daily rate limit reached. Try again tomorrow or switch to Anthropic in settings.yaml. (Groq alternative model support coming soon.)")
+            return RedirectResponse(f"/application/{app_id}?error={error_msg}", status_code=302)
         except Exception as exc:
             import logging
             import urllib.parse
@@ -174,7 +187,13 @@ def create_app() -> FastAPI:
             error_msg = urllib.parse.quote(str(exc)[:300])
             return RedirectResponse(f"/application/{app_id}?error={error_msg}", status_code=302)
 
-        return RedirectResponse(f"/application/{app_id}", status_code=302)
+        # Show which models were used (if fallback happened)
+        import urllib.parse
+        models_used = gen_info.get("models_used", [])
+        qs = ""
+        if models_used:
+            qs = "?models_used=" + urllib.parse.quote(", ".join(dict.fromkeys(models_used)))
+        return RedirectResponse(f"/application/{app_id}{qs}", status_code=302)
 
     @app.post("/application/{app_id}/referrals")
     async def fetch_referrals(request: Request, app_id: str):
@@ -239,8 +258,10 @@ def create_app() -> FastAPI:
         return RedirectResponse(f"/application/{app_id}", status_code=302)
 
     @app.post("/application/{app_id}/fill-gaps")
-    async def fill_gaps(app_id: str, additional_context: str = Form(...)):
+    async def fill_gaps(request: Request, app_id: str, additional_context: str = Form(...)):
         """Update profile with additional context, then regenerate resume & cover letter."""
+        from ..llm_client import GroqRateLimitError
+
         app_data = get_application(app_id)
         if not app_data or not app_data.description or not additional_context.strip():
             return RedirectResponse(f"/application/{app_id}", status_code=302)
@@ -285,6 +306,12 @@ def create_app() -> FastAPI:
 
         try:
             await asyncio.to_thread(_do_fill_gaps)
+        except GroqRateLimitError as exc:
+            import logging
+            import urllib.parse
+            logging.getLogger(__name__).warning("Rate limit during fill-gaps for %s: %s", app_id, exc)
+            error_msg = urllib.parse.quote("Groq daily rate limit reached. Try again tomorrow or switch to Anthropic in settings.yaml. (Groq alternative model support coming soon.)")
+            return RedirectResponse(f"/application/{app_id}?error={error_msg}", status_code=302)
         except Exception as exc:
             import logging
             import urllib.parse

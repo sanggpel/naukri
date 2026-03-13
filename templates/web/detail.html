@@ -10,6 +10,13 @@
 </div>
 {% endif %}
 
+{% if models_used %}
+<div style="margin-bottom:16px;padding:12px 16px;background:#e3f2fd;border-left:4px solid #1565c0;border-radius:4px;">
+    <strong style="color:#1565c0;">Generated using:</strong> <span style="color:#333;">{{ models_used }}</span>
+</div>
+{% endif %}
+
+
 <div class="detail-header">
     <h2>{{ app.job_title }}</h2>
     <div class="company">{{ app.company }}</div>
